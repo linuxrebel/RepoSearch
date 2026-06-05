@@ -10,8 +10,9 @@ import struct
 import sqlite3
 import urllib.request
 from datetime import datetime
+from rb_config import get_db_path
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'repos.db')
+DB_PATH = get_db_path()
 OLLAMA_URL = 'http://localhost:11434/api/embed'
 MODEL = 'nomic-embed-text'
 

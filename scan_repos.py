@@ -12,9 +12,10 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
+from rb_config import get_git_root, get_db_path
 
-GIT_ROOT = '/home/james/git'
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'repos.db')
+GIT_ROOT = get_git_root()
+DB_PATH = get_db_path()
 
 # Language detection by file extension
 EXT_LANG = {

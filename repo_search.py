@@ -13,8 +13,9 @@ import sqlite3
 import urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+from rb_config import get_db_path, get_git_root, get_work_dir, get_config_source, load_config
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'repos.db')
+DB_PATH = get_db_path()
 OLLAMA_URL = 'http://localhost:11434/api/embed'
 EMBED_MODEL = 'nomic-embed-text'
 PORT = 8642
@@ -285,6 +286,33 @@ class RepoHandler(SimpleHTTPRequestHandler):
             })
             conn.close()
 
+        elif path == '/api/config':
+            cfg = load_config()
+            source = get_config_source()
+            self.json_response({
+                'gitParent': cfg.get('gitParent', ''),
+                'workDir': cfg.get('workDir', ''),
+                'configSource': source,
+                'installed': source == '/etc/rb.config'
+            })
+
+        elif path == '/api/browse':
+            # List directories for the path browser
+            browse_path = params.get('path', ['/'])[0]
+            try:
+                entries = []
+                if browse_path != '/':
+                    entries.append({'name': '..', 'path': os.path.dirname(browse_path), 'isDir': True})
+                for e in sorted(os.listdir(browse_path)):
+                    full = os.path.join(browse_path, e)
+                    if os.path.isdir(full) and not e.startswith('.'):
+                        entries.append({'name': e, 'path': full, 'isDir': True})
+                self.json_response({'path': browse_path, 'entries': entries})
+            except PermissionError:
+                self.json_response({'path': browse_path, 'entries': [], 'error': 'Permission denied'})
+            except FileNotFoundError:
+                self.json_response({'path': browse_path, 'entries': [], 'error': 'Not found'})
+
         elif path == '/' or path == '/index.html':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -295,9 +323,40 @@ class RepoHandler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
-    def json_response(self, data):
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == '/api/config':
+            length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(length))
+            git_parent = body.get('gitParent', '').strip()
+            work_dir = body.get('workDir', '').strip()
+            if not git_parent or not work_dir:
+                self.json_response({'error': 'Both fields required'}, 400)
+                return
+            # Write config to workDir (user must copy to /etc)
+            config_content = f"""# repo-browser configuration
+# Move this file to /etc/rb.config
+
+# Parent directory containing all git repos
+gitParent={git_parent}
+
+# Working directory where repo-browser files live
+workDir={work_dir}
+"""
+            out_path = os.path.join(get_work_dir(), 'rb.config')
+            with open(out_path, 'w') as f:
+                f.write(config_content)
+            self.json_response({
+                'saved': out_path,
+                'message': f'Config saved to {out_path}. Copy to /etc/rb.config:\n  sudo cp {out_path} /etc/rb.config'
+            })
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def json_response(self, data, status=200):
         body = json.dumps(data, default=str).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.end_headers()
