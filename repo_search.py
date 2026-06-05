@@ -24,6 +24,30 @@ PORT = 8642
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # Ensure tables exist (handles fresh install with no DB)
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS repos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, url TEXT,
+            description TEXT, readme_snippet TEXT, last_commit TEXT,
+            default_branch TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS repo_tags (
+            repo_id INTEGER NOT NULL, tag TEXT NOT NULL, source TEXT DEFAULT 'auto',
+            FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE,
+            UNIQUE(repo_id, tag)
+        );
+        CREATE TABLE IF NOT EXISTS repo_embeddings (
+            repo_id INTEGER PRIMARY KEY, embedding BLOB, model TEXT,
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS repo_fts USING fts5(
+            name, description, readme_snippet, tags, content='', content_rowid='rowid'
+        );
+    ''')
     return conn
 
 
@@ -368,7 +392,12 @@ workDir={work_dir}
 
 
 if __name__ == '__main__':
+    cfg_src = get_config_source()
     print(f"Repo Browser listening on http://localhost:{PORT}")
+    print(f"  Config: {cfg_src or 'none (configure via gear icon)'}")
+    print(f"  DB: {DB_PATH}")
+    if not os.path.exists(DB_PATH):
+        print(f"  First run — open the UI and click the gear icon to configure")
     server = HTTPServer(('127.0.0.1', PORT), RepoHandler)
     try:
         server.serve_forever()
