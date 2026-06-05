@@ -1,0 +1,7 @@
+# repo-browser requires only stdlib for the server
+# Optional: for future FastAPI upgrade
+# fastapi
+# uvicorn
+
+# Ollama must be running locally for semantic search
+# Pull the embed model: ollama pull nomic-embed-text

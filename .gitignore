@@ -1,0 +1,22 @@
+# Database (generated, machine-specific paths)
+repos.db
+repos.db-wal
+repos.db-shm
+
+# Test/temp files
+test_output*.txt
+dupe_check.txt
+rebuild_output.txt
+test_search.sh
+test_semantic.sh
+rebuild.sh
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
