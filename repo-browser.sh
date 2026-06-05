@@ -115,18 +115,27 @@ rescan() {
     fi
 }
 
+duplist() {
+    if [ -z "$gitParent" ]; then
+        echo "gitParent not configured. Set it in /etc/rb.config or via the UI gear icon."
+        return 1
+    fi
+    cd "$DIR" && python3 find-dupe.py
+}
+
 running() {
     [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
 }
 
 case "${1:-}" in
-    start)   start ;;
-    stop)    stop ;;
-    restart) stop; sleep 1; start ;;
-    status)  status ;;
-    rescan)  rescan ;;
+    start)     start ;;
+    stop)      stop ;;
+    restart)   stop; sleep 1; start ;;
+    status)    status ;;
+    rescan)    rescan ;;
+    --duplist) duplist ;;
     *)
-        echo "Usage: repo-browser.sh {start|stop|restart|status|rescan}"
+        echo "Usage: repo-browser.sh {start|stop|restart|status|rescan|--duplist}"
         exit 1
         ;;
 esac
