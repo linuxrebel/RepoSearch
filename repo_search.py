@@ -398,6 +398,7 @@ if __name__ == '__main__':
     print(f"  DB: {DB_PATH}")
     if not os.path.exists(DB_PATH):
         print(f"  First run — open the UI and click the gear icon to configure")
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer(('127.0.0.1', PORT), RepoHandler)
     try:
         server.serve_forever()

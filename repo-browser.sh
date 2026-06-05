@@ -31,6 +31,13 @@ start() {
         echo "Already running (PID $(cat "$PIDFILE"))"
         return 1
     fi
+    # Kill any stale process on the port
+    local stale_pid
+    stale_pid=$(lsof -ti :$PORT 2>/dev/null)
+    if [ -n "$stale_pid" ]; then
+        kill "$stale_pid" 2>/dev/null
+        sleep 1
+    fi
     if [ -z "$gitParent" ] && [ -n "$CONFIG" ]; then
         echo "Warning: gitParent not set in config"
     fi
