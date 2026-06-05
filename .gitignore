@@ -3,6 +3,9 @@ repos.db
 repos.db-wal
 repos.db-shm
 
+# Local config (use rb.config.example as template)
+rb.config
+
 # Test/temp files
 test_output*.txt
 dupe_check.txt

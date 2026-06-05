@@ -1,0 +1,11 @@
+# repo-browser configuration
+# Copy to /etc/rb.config and edit paths for your system
+#
+#   sudo cp rb.config.example /etc/rb.config
+#   sudo vi /etc/rb.config
+
+# Parent directory containing all git repos
+gitParent=/path/to/your/git/repos
+
+# Working directory where repo-browser files live
+workDir=/path/to/repo-browser
