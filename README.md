@@ -62,7 +62,7 @@ repo-browser.sh stop      # stop server
 repo-browser.sh restart   # stop + start
 repo-browser.sh status    # PID, config source, repo/tag/embed counts
 repo-browser.sh rescan    # re-scan git dir + re-embed (server stays up)
-repo-browser.sh --duplist  # report duplicate clones to ~/Clone-Duplist.txt
+repo-browser.sh duplist    # report duplicate clones to ~/Clone-Duplist.txt
 ```
 
 ## Configuration
@@ -118,10 +118,10 @@ Tags sourced as `auto` are regenerated on every scan. Manual tags (source `manua
 
 ## Duplicate Detection
 
-If you organise repos into category folders, the same repo may end up cloned in multiple places. The `--duplist` command finds these and writes a report to `~/Clone-Duplist.txt`:
+If you organise repos into category folders, the same repo may end up cloned in multiple places. The `duplist` command finds these and writes a report to `~/Clone-Duplist.txt`:
 
 ```bash
-repo-browser.sh --duplist
+repo-browser.sh duplist
 ```
 
 Output example:
@@ -136,7 +136,7 @@ WSL-Hello-sudo               WSL            security-automation
 
 Locations are directory names under `gitParent`. Duplicates are detected by normalised remote URL, with a fallback to name matching for repos without a remote.
 
-Note: the scanner's `rescan` command also deduplicates automatically — it keeps one copy (the deepest/most specific path) and removes the others from the search index. The `--duplist` report shows you what's on disk so you can decide which clones to clean up manually.
+Note: the scanner's `rescan` command also deduplicates automatically — it keeps one copy (the deepest/most specific path) and removes the others from the search index. The `duplist` report shows you what's on disk so you can decide which clones to clean up manually.
 
 ## Deduplication
 

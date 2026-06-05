@@ -133,9 +133,9 @@ case "${1:-}" in
     restart)   stop; sleep 1; start ;;
     status)    status ;;
     rescan)    rescan ;;
-    --duplist) duplist ;;
+    duplist)   duplist ;;
     *)
-        echo "Usage: repo-browser.sh {start|stop|restart|status|rescan|--duplist}"
+        echo "Usage: repo-browser.sh {start|stop|restart|status|rescan|duplist}"
         exit 1
         ;;
 esac
