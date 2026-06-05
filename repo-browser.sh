@@ -1,28 +1,41 @@
 #!/bin/bash
 # repo-browser: manage the local repo search server
 
-CONFIG="/etc/rb.config"
-if [ ! -f "$CONFIG" ]; then
-    # Fallback: config next to this script
-    SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-    CONFIG="$SCRIPT_DIR/repo-browser/rb.config"
-    if [ ! -f "$CONFIG" ]; then
-        echo "No config found. Expected /etc/rb.config"
-        echo "Run the app and use the gear icon to generate one."
-        exit 1
-    fi
-fi
-
-# Source config
-eval "$(grep -v '^#' "$CONFIG" | grep '=' | sed 's/^/export /')"
-DIR="${workDir:?workDir not set in $CONFIG}"
-DB="$DIR/repos.db"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PIDFILE="/tmp/repo-browser.pid"
 PORT=8642
+
+# Load config: /etc/rb.config → local rb.config → defaults from script location
+load_config() {
+    if [ -f /etc/rb.config ]; then
+        CONFIG="/etc/rb.config"
+    elif [ -f "$SCRIPT_DIR/rb.config" ]; then
+        CONFIG="$SCRIPT_DIR/rb.config"
+    else
+        CONFIG=""
+    fi
+
+    if [ -n "$CONFIG" ]; then
+        eval "$(grep -v '^#' "$CONFIG" | grep '=' | sed 's/^/export /')"
+    fi
+
+    # Defaults: workDir = script's directory, gitParent = empty (must configure)
+    DIR="${workDir:-$SCRIPT_DIR}"
+    export gitParent="${gitParent:-}"
+}
+
+load_config
 
 start() {
     if running; then
         echo "Already running (PID $(cat "$PIDFILE"))"
+        return 1
+    fi
+    if [ -z "$gitParent" ] && [ -n "$CONFIG" ]; then
+        echo "Warning: gitParent not set in config"
+    fi
+    if [ ! -f "$DIR/repo_search.py" ]; then
+        echo "Error: repo_search.py not found in $DIR"
         return 1
     fi
     cd "$DIR" && nohup python3 repo_search.py > /tmp/repo-browser.log 2>&1 &
@@ -30,6 +43,12 @@ start() {
     sleep 1
     if running; then
         echo "Started on http://localhost:$PORT (PID $(cat "$PIDFILE"))"
+        if [ -z "$CONFIG" ]; then
+            echo ""
+            echo "No config file found. Open http://localhost:$PORT"
+            echo "and click the gear icon to configure, then:"
+            echo "  sudo cp $DIR/rb.config /etc/rb.config"
+        fi
     else
         echo "Failed to start — check /tmp/repo-browser.log"
         rm -f "$PIDFILE"
@@ -50,24 +69,32 @@ stop() {
 status() {
     if running; then
         echo "Running (PID $(cat "$PIDFILE")) on http://localhost:$PORT"
-        echo "Config: $CONFIG"
-        echo "Git root: $gitParent"
+        echo "Config: ${CONFIG:-none (using defaults)}"
+        echo "Git root: ${gitParent:-(not set)}"
         echo "Work dir: $DIR"
-        python3 -c "
+        if [ -f "$DIR/repos.db" ]; then
+            python3 -c "
 import sqlite3
-c = sqlite3.connect('$DB')
+c = sqlite3.connect('$DIR/repos.db')
 r = c.execute('SELECT count(*) FROM repos').fetchone()[0]
 e = c.execute('SELECT count(*) FROM repo_embeddings').fetchone()[0]
 t = c.execute('SELECT count(DISTINCT tag) FROM repo_tags').fetchone()[0]
 print(f'  {r} repos, {e} embedded, {t} tags')
 c.close()
 "
+        else
+            echo "  No database yet — run: repo-browser.sh rescan"
+        fi
     else
         echo "Not running"
     fi
 }
 
 rescan() {
+    if [ -z "$gitParent" ]; then
+        echo "gitParent not configured. Set it in /etc/rb.config or via the UI gear icon."
+        return 1
+    fi
     echo "Scanning repos..."
     cd "$DIR" && python3 scan_repos.py
     echo ""
@@ -77,7 +104,7 @@ rescan() {
     if running; then
         echo "Server is running — refresh browser to see changes"
     else
-        echo "Server not running — use: repo-browser start"
+        echo "Server not running — use: repo-browser.sh start"
     fi
 }
 
@@ -92,7 +119,7 @@ case "${1:-}" in
     status)  status ;;
     rescan)  rescan ;;
     *)
-        echo "Usage: repo-browser {start|stop|restart|status|rescan}"
+        echo "Usage: repo-browser.sh {start|stop|restart|status|rescan}"
         exit 1
         ;;
 esac
