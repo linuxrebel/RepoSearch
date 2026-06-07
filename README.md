@@ -50,47 +50,47 @@ On Windows, install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install)
 
 ## Installation and Usage
 
-Clone the repo and add the launcher to your PATH:
+Download the latest release tarball from the [Releases](../../releases) page and extract it:
 
 ```bash
-git clone <repo-url> /path/to/repo-browser
-cd /path/to/repo-browser
-
-# Symlink the Python launcher into a directory already in your PATH
-ln -s "$(pwd)/repo-browser.py" ~/bin/repo-browser.py
+cd ~/bin
+tar xzf RepoBrowser-1.0.1.tgz
+ln -sfn RepoBrowser-1.0.1 RepoBrowser
+ln -sf ~/bin/RepoBrowser/repo-browser.py ~/bin/repo-browser.py
 ```
 
-Start the server:
+The `RepoBrowser` symlink makes future upgrades a one-liner — just extract the new tarball and update the symlink.
+
+**Set up a stable data directory** so your database survives upgrades:
 
 ```bash
-repo-browser.py start
+mkdir -p ~/.local/share/repo-browser
 ```
 
-On first run there is no config yet. The server starts anyway — open http://localhost:8642 and click the gear icon in the top-right corner to set:
-
-- **gitParent** — the root directory containing all your git repos
-- **workDir** — the directory where repo-browser files live
-
-Click Save. The UI will show the command to install the config system-wide:
+Create `/etc/rb.config`:
 
 ```bash
-sudo cp /path/to/repo-browser/rb.config /etc/rb.config
-```
-
-Alternatively, copy the example and edit it directly:
-
-```bash
-sudo cp rb.config.example /etc/rb.config
+sudo cp ~/bin/RepoBrowser/rb.config.example /etc/rb.config
 sudo vi /etc/rb.config
 ```
 
-Once the config is in place, scan your repos and generate embeddings:
+Set these two values:
+
+```
+gitParent=/path/to/your/git/repos
+workDir=/home/youruser/.local/share/repo-browser
+```
+
+Start the server and scan:
 
 ```bash
+repo-browser.py start
 repo-browser.py rescan
 ```
 
-Refresh the browser. Your repos are now searchable.
+Open http://localhost:8642 — your repos are now searchable.
+
+> **Upgrading:** extract the new tarball, update the `RepoBrowser` symlink, and run `repo-browser.py rescan`. Your database and config are untouched.
 
 ## CLI
 
