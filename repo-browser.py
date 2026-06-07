@@ -215,7 +215,10 @@ def cmd_dupclean(cfg: dict) -> int:
     if not cfg['gitParent']:
         print('gitParent not configured. Set it in /etc/rb.config or via the UI gear icon.')
         return 1
-    subprocess.run([sys.executable, 'dupe_clean.py'], cwd=cfg['workDir'])
+    try:
+        subprocess.run([sys.executable, 'dupe_clean.py'], cwd=cfg['workDir'])
+    except KeyboardInterrupt:
+        pass  # child already printed summary and exited cleanly
     return 0
 
 

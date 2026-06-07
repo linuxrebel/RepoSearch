@@ -100,88 +100,62 @@ def find_dupes_with_paths():
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
 
-def _build_items(dupes):
-    """Flatten groups into a list of display items."""
-    items = []
-    radio_indices = []  # positions in items[] that are radio buttons
-    for gi, group in enumerate(dupes):
-        items.append({'type': 'header', 'group': gi})
-        for pi, path in enumerate(group['paths']):
-            radio_indices.append(len(items))
-            items.append({'type': 'radio', 'group': gi, 'path_idx': pi})
-        items.append({'type': 'spacer'})
-    return items, radio_indices
-
-
-def _draw(stdscr, items, radio_indices, dupes, cursor_radio, scroll_top,
-          cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim):
+def _draw_one(stdscr, dupes, group_idx, cursor_path,
+              cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim):
     h, w = stdscr.getmaxyx()
-    content_h = h - 4
+    group = dupes[group_idx]
+    total = len(dupes)
 
     stdscr.erase()
 
-    # Row 0: title
-    title = f" Duplicate Repo Cleaner  —  {len(dupes)} repos with duplicates "
+    # Row 0: title + progress
+    title = f" Duplicate Repo Cleaner  —  {group_idx + 1} / {total} "
     stdscr.addstr(0, 0, title[:w - 1], cp_title | curses.A_BOLD)
 
     # Row 1: hints
-    hints = " ↑↓ navigate   Space: keep this copy   D: delete others   Q: quit "
+    hints = " ↑↓ select   Space: mark keep   ←→ prev/next repo   D: done   Q: quit "
     stdscr.addstr(1, 0, hints[:w - 1], cp_hint)
 
     # Row 2: separator
     stdscr.addstr(2, 0, '─' * (w - 1), cp_dim)
 
-    # Scroll so cursor item is visible
-    cursor_item_idx = radio_indices[cursor_radio]
-    while cursor_item_idx < scroll_top:
-        scroll_top -= 1
-    while cursor_item_idx >= scroll_top + content_h:
-        scroll_top += 1
+    # Row 3: blank
+    # Row 4: repo name
+    stdscr.addstr(4, 4, group['name'][:w - 6], cp_header | curses.A_BOLD)
 
-    # Content rows
-    row = 3
-    for item_idx in range(scroll_top, len(items)):
+    # Rows 6+: radio options
+    for pi, path in enumerate(group['paths']):
+        row = 6 + pi
         if row >= h - 1:
             break
-        item = items[item_idx]
+        is_keep   = group['keep'] == pi
+        is_cursor = cursor_path == pi
+        marker = '(*) ' if is_keep else '( ) '
+        line = f"  {marker}{path}"
+        if len(line) > w - 1:
+            line = line[:w - 4] + '...'
 
-        if item['type'] == 'header':
-            name = dupes[item['group']]['name']
-            stdscr.addstr(row, 2, name[:w - 4], cp_header | curses.A_BOLD)
+        if is_cursor:
+            stdscr.addstr(row, 0, line.ljust(w - 1)[:w - 1], cp_cursor)
+        elif is_keep:
+            stdscr.addstr(row, 0, line[:w - 1], cp_keep)
+        else:
+            stdscr.addstr(row, 0, line[:w - 1])
 
-        elif item['type'] == 'radio':
-            gi = item['group']
-            pi = item['path_idx']
-            path = dupes[gi]['paths'][pi]
-            is_keep = dupes[gi]['keep'] == pi
-            is_cursor = radio_indices[cursor_radio] == item_idx
-
-            marker = '(*) ' if is_keep else '( ) '
-            line = f"  {marker}{path}"
-            # Truncate with ellipsis if too wide
-            if len(line) > w - 1:
-                line = line[:w - 4] + '...'
-
-            if is_cursor:
-                stdscr.addstr(row, 0, line.ljust(w - 1)[:w - 1], cp_cursor)
-            elif is_keep:
-                stdscr.addstr(row, 0, line[:w - 1], cp_keep)
-            else:
-                stdscr.addstr(row, 0, line[:w - 1])
-
-        # spacer: blank line
-        row += 1
-
-    # Footer
-    footer = f" {cursor_radio + 1}/{len(radio_indices)} "
+    # Footer: progress bar hint
+    pct = int((group_idx + 1) / total * 20)
+    bar = '█' * pct + '░' * (20 - pct)
+    footer = f" [{bar}] {group_idx + 1}/{total} "
     stdscr.addstr(h - 1, 0, footer[:w - 1], cp_dim)
 
     stdscr.refresh()
-    return scroll_top  # may have been adjusted
 
 
 def run_tui(dupes):
-    """Run the TUI. Returns updated dupes list, or None if user quit."""
+    """
+    Drive the per-repo select → confirm → delete loop.
+    Returns (deleted_count, skipped_count) when finished or user quits.
+    """
     return curses.wrapper(_tui_main, dupes)
 
 
@@ -190,13 +164,12 @@ def _tui_main(stdscr, dupes):
     curses.start_color()
     curses.use_default_colors()
 
-    # Color pairs
-    curses.init_pair(1, curses.COLOR_CYAN, -1)          # title
-    curses.init_pair(2, curses.COLOR_YELLOW, -1)         # hints
-    curses.init_pair(3, curses.COLOR_CYAN, -1)           # group header
-    curses.init_pair(4, curses.COLOR_GREEN, -1)          # keep path
-    curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_WHITE)  # cursor row
-    curses.init_pair(6, -1, -1)                          # dim
+    curses.init_pair(1, curses.COLOR_CYAN, -1)
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)
+    curses.init_pair(3, curses.COLOR_CYAN, -1)
+    curses.init_pair(4, curses.COLOR_GREEN, -1)
+    curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(6, -1, -1)
 
     cp_title  = curses.color_pair(1)
     cp_hint   = curses.color_pair(2)
@@ -205,78 +178,96 @@ def _tui_main(stdscr, dupes):
     cp_cursor = curses.color_pair(5)
     cp_dim    = curses.color_pair(6) | curses.A_DIM
 
-    items, radio_indices = _build_items(dupes)
-    cursor_radio = 0
-    scroll_top = 0
+    total_deleted = 0
+    total_skipped = 0
 
-    while True:
-        scroll_top = _draw(stdscr, items, radio_indices, dupes,
-                           cursor_radio, scroll_top,
-                           cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
+    for group_idx, group in enumerate(dupes):
+        cursor_path = group['keep']
 
-        key = stdscr.getch()
+        # ── Selection loop for this repo ──────────────────────────────
+        confirmed = False
+        while True:
+            _draw_one(stdscr, dupes, group_idx, cursor_path,
+                      cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
 
-        if key in (ord('q'), ord('Q')):
-            return None
+            key = stdscr.getch()
+            n_paths = len(group['paths'])
 
-        elif key in (ord('d'), ord('D')):
-            return dupes
+            if key in (ord('q'), ord('Q'), 3):  # 3 = Ctrl-C
+                # Quit — report what was done so far
+                return total_deleted, total_skipped
 
-        elif key in (curses.KEY_UP, ord('k')):
-            if cursor_radio > 0:
-                cursor_radio -= 1
+            elif key in (curses.KEY_UP, ord('k')):
+                cursor_path = max(0, cursor_path - 1)
 
-        elif key in (curses.KEY_DOWN, ord('j')):
-            if cursor_radio < len(radio_indices) - 1:
-                cursor_radio += 1
+            elif key in (curses.KEY_DOWN, ord('j')):
+                cursor_path = min(n_paths - 1, cursor_path + 1)
 
-        elif key == ord(' '):
-            item = items[radio_indices[cursor_radio]]
-            dupes[item['group']]['keep'] = item['path_idx']
-            # Auto-advance to next radio after selection
-            if cursor_radio < len(radio_indices) - 1:
-                cursor_radio += 1
+            elif key == ord(' '):
+                group['keep'] = cursor_path
 
-        elif key == curses.KEY_RESIZE:
-            pass  # just redraw on next loop
+            elif key in (10, 13, curses.KEY_ENTER, curses.KEY_RIGHT,
+                         ord('n'), ord('l')):
+                # Confirm selection → proceed to deletion for this repo
+                group['keep'] = cursor_path
+                confirmed = True
+                break
 
+            elif key in (ord('s'), ord('S')):
+                # Skip this repo without deleting anything
+                confirmed = False
+                break
 
-# ── deletion ─────────────────────────────────────────────────────────────────
+            elif key == curses.KEY_RESIZE:
+                pass
 
-def confirm_and_delete(dupes):
-    to_delete = []
-    for group in dupes:
+        # ── Deletion confirmations for this repo ──────────────────────
+        if not confirmed:
+            continue  # S was pressed — move to next repo silently
+
         keep_path = group['paths'][group['keep']]
-        for path in group['paths']:
-            if path != keep_path:
-                to_delete.append((path, keep_path))
+        to_delete = [p for p in group['paths'] if p != keep_path]
 
-    if not to_delete:
-        print("Nothing to delete.")
-        return
+        if to_delete:
+            # Temporarily leave curses for normal terminal I/O
+            curses.def_prog_mode()
+            curses.endwin()
 
-    print(f"\n{len(to_delete)} path(s) staged for deletion:\n")
-    deleted = 0
-    skipped = 0
-    errors = 0
+            print(f"\n  {group['name']}")
+            print(f"  Keep : {keep_path}\n")
 
-    for path, keep_path in to_delete:
-        print(f"  Keep : {keep_path}")
-        ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
-        if ans == 'y':
             try:
-                shutil.rmtree(path)
-                print("  Deleted.\n")
-                deleted += 1
-            except Exception as e:
-                print(f"  ERROR: {e}\n")
-                errors += 1
-        else:
-            print("  Skipped.\n")
-            skipped += 1
+                for path in to_delete:
+                    ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
+                    if ans == 'y':
+                        try:
+                            shutil.rmtree(path)
+                            print("  Deleted.\n")
+                            total_deleted += 1
+                        except Exception as e:
+                            print(f"  ERROR: {e}\n")
+                    else:
+                        print("  Skipped.\n")
+                        total_skipped += 1
 
-    print(f"Done: {deleted} deleted, {skipped} skipped" +
-          (f", {errors} errors" if errors else "") + ".")
+                if group_idx < len(dupes) - 1:
+                    input("  Press Enter for next repo...")
+
+            except KeyboardInterrupt:
+                print("\nInterrupted.")
+                stdscr.refresh()  # restore curses so wrapper can call endwin() cleanly
+                return total_deleted, total_skipped
+
+            # Restore curses
+            stdscr.refresh()
+
+    return total_deleted, total_skipped
+
+
+# ── deletion summary ──────────────────────────────────────────────────────────
+
+def print_summary(deleted, skipped):
+    print(f"\nDone: {deleted} deleted, {skipped} skipped.")
     if deleted > 0:
         print("Run 'repo-browser.py rescan' to update the search index.")
 
@@ -288,20 +279,25 @@ def main():
         print("Error: gitParent not configured. Run 'repo-browser.py start' and set it via the Settings UI.")
         sys.exit(1)
 
-    print("Scanning for duplicates...")
-    dupes = find_dupes_with_paths()
+    try:
+        print("Scanning for duplicates...")
+        dupes = find_dupes_with_paths()
 
-    if not dupes:
-        print("No duplicate clones found.")
-        return
+        if not dupes:
+            print("No duplicate clones found.")
+            return
 
-    result = run_tui(dupes)
+        deleted, skipped = run_tui(dupes)
+        print_summary(deleted, skipped)
 
-    if result is None:
-        print("Cancelled — no changes made.")
-        return
-
-    confirm_and_delete(result)
+    except KeyboardInterrupt:
+        # Ensure terminal is restored if curses left it raw
+        try:
+            curses.endwin()
+        except Exception:
+            pass
+        print("\nInterrupted.")
+        sys.exit(0)
 
 
 if __name__ == '__main__':
