@@ -43,7 +43,7 @@ Local searchable index of all your git repos. Combines FTS5 keyword search with 
 |---|---|
 | Linux | ✅ Fully supported |
 | macOS | ✅ Fully supported (Homebrew used for Ollama install) |
-| Windows (native) | ❌ Not supported — use WSL (Windows Subsystem for Linux) |
+| Windows (native) | ⚠️ Not supported natively — use WSL (Windows Subsystem for Linux) |
 
 On Windows, install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and run repo-browser inside it as you would on Linux.
 
@@ -55,17 +55,14 @@ Clone the repo and add the launcher to your PATH:
 git clone <repo-url> /path/to/repo-browser
 cd /path/to/repo-browser
 
-# Option A: symlink the Python launcher into a directory already in your PATH
+# Symlink the Python launcher into a directory already in your PATH
 ln -s "$(pwd)/repo-browser.py" ~/bin/repo-browser.py
-
-# Option B: symlink the shell wrapper (also works, delegates to repo-browser.py)
-ln -s "$(pwd)/repo-browser.sh" ~/bin/repo-browser.sh
 ```
 
 Start the server:
 
 ```bash
-repo-browser.sh start
+repo-browser.py start
 ```
 
 On first run there is no config yet. The server starts anyway — open http://localhost:8642 and click the gear icon in the top-right corner to set:
@@ -89,7 +86,7 @@ sudo vi /etc/rb.config
 Once the config is in place, scan your repos and generate embeddings:
 
 ```bash
-repo-browser.sh rescan
+repo-browser.py rescan
 ```
 
 Refresh the browser. Your repos are now searchable.
@@ -105,7 +102,7 @@ repo-browser.py rescan    # re-scan git dir + re-embed (server stays up)
 repo-browser.py duplist   # report duplicate clones to ~/Clone-Duplist.txt
 ```
 
-The `.sh` wrapper is still available and delegates to `repo-browser.py` for backward compatibility.
+
 
 ## Configuration
 
@@ -124,7 +121,6 @@ workDir=/home/user/bin/repo-browser
 | File | Purpose |
 |---|---|
 | `repo-browser.py` | Cross-platform launcher — start/stop/restart/status/rescan/duplist |
-| `repo-browser.sh` | Thin shell wrapper — delegates to `repo-browser.py` |
 | `scan_repos.py` | Walks `gitParent`, extracts metadata, auto-generates tags, deduplicates by remote URL, populates SQLite |
 | `embed_repos.py` | Generates semantic embeddings via Ollama `nomic-embed-text` |
 | `repo_search.py` | HTTP server on port 8642 — search API + settings API + serves UI |
@@ -164,7 +160,7 @@ Tags sourced as `auto` are regenerated on every scan. Manual tags (source `manua
 If you organise repos into category folders, the same repo may end up cloned in multiple places. The `duplist` command finds these and writes a report to `~/Clone-Duplist.txt`:
 
 ```bash
-repo-browser.sh duplist
+repo-browser.py duplist
 ```
 
 Output example:
