@@ -2,6 +2,24 @@
 
 Local searchable index of all your git repos. Combines FTS5 keyword search with semantic vector search (via Ollama) so you can find repos by name, tag, or plain English description like "something that monitors kubernetes pods".
 
+![repo-browser UI](screenshot.png)
+
+---
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation and Usage](#installation-and-usage)
+- [CLI](#cli)
+- [Configuration](#configuration)
+- [Files](#files)
+- [Search](#search)
+- [Tag Generation](#tag-generation)
+- [Duplicate Detection](#duplicate-detection)
+- [Deduplication](#deduplication)
+
+---
+
 ## Prerequisites
 
 - Python 3.10+ (stdlib only — no pip installs required)
