@@ -31,6 +31,7 @@ start() {
         echo "Already running (PID $(cat "$PIDFILE"))"
         return 1
     fi
+    ensure_ollama || return 1
     # Kill any stale process on the port
     local stale_pid
     stale_pid=$(lsof -ti :$PORT 2>/dev/null)

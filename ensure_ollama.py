@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-ensure_ollama.py — called by repo-browser.sh before any embedding operation.
+ensure_ollama.py — called by repo-browser.sh on start and before embedding.
 
 Checks (in order):
-  1. ollama binary is installed  → installs via official curl script if missing
-  2. ollama service is reachable → starts `ollama serve` in background if not
-  3. nomic-embed-text is present → pulls the model if missing
+  1. ollama binary installed  → prompts to install via official curl script
+  2. ollama service reachable → starts quietly in background (no prompt needed)
+  3. nomic-embed-text present → prompts to pull (~274 MB)
 
-Exits 0 on success, non-zero on unrecoverable failure.
+If the user declines any prompt, prints manual instructions and exits non-zero.
 """
 
 import json
@@ -23,9 +23,22 @@ OLLAMA_API  = 'http://localhost:11434'
 INSTALL_URL = 'https://ollama.com/install.sh'
 
 
-def ok(msg):    print(f'  ✓ {msg}')
-def info(msg):  print(f'  → {msg}')
-def err(msg):   print(f'  ✗ {msg}', file=sys.stderr)
+def ok(msg):   print(f'  ✓ {msg}')
+def info(msg): print(f'  → {msg}')
+def err(msg):  print(f'  ✗ {msg}', file=sys.stderr)
+
+
+def ask(question, default_yes=True) -> bool:
+    """Prompt the user. Default answer is shown in caps. Returns True for yes."""
+    hint = '[Y/n]' if default_yes else '[y/N]'
+    try:
+        answer = input(f'  {question} {hint}: ').strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if answer == '':
+        return default_yes
+    return answer in ('y', 'yes')
 
 
 # ── 1. Binary present? ───────────────────────────────────────────────────────
@@ -35,17 +48,18 @@ def ollama_installed() -> bool:
 
 
 def install_ollama():
-    info('ollama not found — installing via curl...')
-    ret = subprocess.run(
-        f'curl -fsSL {INSTALL_URL} | sh',
-        shell=True
-    )
-    if ret.returncode != 0:
-        err('Ollama installation failed.')
+    print()
+    print('  Ollama is not installed. It is required for semantic search.')
+    if not ask('Install Ollama now? (uses: curl -fsSL https://ollama.com/install.sh | sh)'):
+        print()
+        err('Ollama not installed. To install manually:')
+        print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
         sys.exit(1)
-    if not ollama_installed():
-        err('Installed, but ollama binary still not found in PATH. '
-            'You may need to open a new shell or add /usr/local/bin to PATH.')
+    print()
+    ret = subprocess.run('curl -fsSL https://ollama.com/install.sh | sh', shell=True)
+    if ret.returncode != 0 or not ollama_installed():
+        err('Installation failed. Try manually:')
+        print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
         sys.exit(1)
     ok('Ollama installed.')
 
@@ -74,8 +88,9 @@ def start_ollama():
             ok('Ollama service started.')
             return
         if i % 5 == 4:
-            info(f'Waiting for Ollama... ({i+1}s)')
+            info(f'Waiting for Ollama service... ({i+1}s)')
     err('Ollama service did not become reachable within 15 seconds.')
+    err('Try running: ollama serve')
     sys.exit(1)
 
 
@@ -91,10 +106,18 @@ def model_present() -> bool:
 
 
 def pull_model():
-    info(f'Pulling {MODEL} (this may take a few minutes on first run)...')
+    print()
+    print(f'  The {MODEL} embedding model is not installed (~274 MB download).')
+    print( '  It is required for semantic search.')
+    if not ask(f'Pull {MODEL} now?'):
+        print()
+        err(f'{MODEL} not pulled. To pull manually:')
+        print(f'    ollama pull {MODEL}', file=sys.stderr)
+        sys.exit(1)
+    print()
     ret = subprocess.run(['ollama', 'pull', MODEL])
     if ret.returncode != 0:
-        err(f'Failed to pull {MODEL}.')
+        err(f'Failed to pull {MODEL}. Try manually: ollama pull {MODEL}')
         sys.exit(1)
     ok(f'{MODEL} ready.')
 
