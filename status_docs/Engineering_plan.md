@@ -100,9 +100,13 @@ Scans `gitParent` independently (doesn't use DB), groups by normalised URL, outp
 
 Checks `/etc/rb.config` first, falls back to `rb.config` in script directory. Exports `get_git_root()`, `get_work_dir()`, `get_db_path()`, `get_config_source()`, `load_config()`. Used by all Python scripts.
 
-### repo-browser.sh — CLI Wrapper
+### repo-browser.py — CLI Launcher
 
-Reads config, manages server PID via `/tmp/repo-browser.pid`. Commands: start, stop, restart, status, rescan, duplist. Kills stale processes on port 8642 before starting.
+Cross-platform Python launcher. Reads config, manages server PID via `/tmp/repo-browser.pid`. Commands: start, stop, restart, status, rescan, duplist, dupclean. Kills stale processes on port 8642 before starting. Delegates `dupclean` to `dupe_clean.py` via subprocess.
+
+### dupe_clean.py — Interactive Duplicate Cleaner
+
+Curses TUI that drives per-repo duplicate cleanup. Discovers duplicate groups the same way `find-dupe.py` does (normalised URL matching + name fallback). For each group, shows all clone paths and lets the user pick which to keep. Keys: ↑↓/jk navigate, Space mark keep, Enter/→/n confirm, S skip, Q/Ctrl-C quit. Temporarily exits curses for `input()` confirmation prompts using `def_prog_mode()` / `endwin()` / `refresh()` pattern. Uses `shutil.rmtree` for deletion. Prints summary on exit.
 
 ## Data Model
 
@@ -113,6 +117,7 @@ repos (
     path TEXT NOT NULL UNIQUE,
     url TEXT,                    -- remote origin URL
     description TEXT,            -- first meaningful README line
+    summary TEXT,                -- heuristic TLDR prose (1-2 sentences)
     readme_snippet TEXT,         -- first 2000 chars of README
     last_commit TEXT,            -- ISO datetime of last commit
     default_branch TEXT,
@@ -152,21 +157,25 @@ scan_log (
 
 ```
 repo-browser/
-├── repo-browser.sh        # CLI wrapper (symlink into PATH)
-├── scan_repos.py          # scanner
+├── repo-browser.py        # CLI launcher (symlink into PATH)
+├── scan_repos.py          # scanner + TLDR summary extraction
 ├── embed_repos.py         # embedding generator
 ├── repo_search.py         # HTTP server + search
-├── find-dupe.py           # duplicate reporter
+├── find-dupe.py           # duplicate reporter (writes ~/Clone-Duplist.txt)
+├── dupe_clean.py          # interactive curses TUI for duplicate cleanup
+├── ensure_ollama.py       # Ollama + model dependency check/install
 ├── rb_config.py           # config loader
 ├── index.html             # frontend UI
 ├── rb.config.example      # config template
-├── requirements.txt       # documents deps (stdlib only)
 ├── README.md
 ├── status_docs/
 │   ├── Engineering_plan.md
 │   └── Project_state.md
+├── images/
+│   ├── screenshot-dark.png
+│   └── screenshot-light.png
 ├── .gitignore
-└── repos.db               # (gitignored, generated)
+└── repos.db               # (gitignored, generated on first run)
 ```
 
 ## Dependencies
