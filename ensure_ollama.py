@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-ensure_ollama.py — called by repo-browser.sh on start and before embedding.
+ensure_ollama.py — called by repo-browser.py before any embedding operation.
 
 Checks (in order):
-  1. ollama binary installed  → prompts to install via official curl script
-  2. ollama service reachable → starts quietly in background (no prompt needed)
-  3. nomic-embed-text present → prompts to pull (~274 MB)
+  1. ollama binary is installed  → prompts to install if missing
+     - Linux : curl -fsSL https://ollama.com/install.sh | sh
+     - macOS : brew install ollama  (fallback: direct download URL)
+  2. ollama service is reachable → starts `ollama serve` in background if not
+  3. nomic-embed-text is present → prompts to pull (~274 MB) if missing
 
 If the user declines any prompt, prints manual instructions and exits non-zero.
 """
@@ -18,9 +20,8 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
-MODEL       = 'nomic-embed-text'
-OLLAMA_API  = 'http://localhost:11434'
-INSTALL_URL = 'https://ollama.com/install.sh'
+MODEL      = 'nomic-embed-text'
+OLLAMA_API = 'http://localhost:11434'
 
 
 def ok(msg):   print(f'  ✓ {msg}')
@@ -29,16 +30,21 @@ def err(msg):  print(f'  ✗ {msg}', file=sys.stderr)
 
 
 def ask(question, default_yes=True) -> bool:
-    """Prompt the user. Default answer is shown in caps. Returns True for yes."""
     hint = '[Y/n]' if default_yes else '[y/N]'
     try:
         answer = input(f'  {question} {hint}: ').strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
-    if answer == '':
-        return default_yes
-    return answer in ('y', 'yes')
+    return (answer == '') and default_yes or answer in ('y', 'yes')
+
+
+def platform() -> str:
+    if sys.platform == 'linux':
+        return 'linux'
+    if sys.platform == 'darwin':
+        return 'macos'
+    return 'unknown'
 
 
 # ── 1. Binary present? ───────────────────────────────────────────────────────
@@ -48,20 +54,52 @@ def ollama_installed() -> bool:
 
 
 def install_ollama():
+    plat = platform()
     print()
     print('  Ollama is not installed. It is required for semantic search.')
-    if not ask('Install Ollama now? (uses: curl -fsSL https://ollama.com/install.sh | sh)'):
+
+    if plat == 'linux':
+        if not ask('Install Ollama now? (curl -fsSL https://ollama.com/install.sh | sh)'):
+            print()
+            err('Ollama not installed. To install manually:')
+            print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
+            sys.exit(1)
         print()
-        err('Ollama not installed. To install manually:')
-        print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
+        ret = subprocess.run('curl -fsSL https://ollama.com/install.sh | sh', shell=True)
+        if ret.returncode != 0 or not ollama_installed():
+            err('Installation failed. Try manually:')
+            print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
+            sys.exit(1)
+        ok('Ollama installed.')
+
+    elif plat == 'macos':
+        if shutil.which('brew'):
+            if not ask('Install Ollama via Homebrew? (brew install ollama)'):
+                print()
+                err('Ollama not installed. To install manually:')
+                print('    brew install ollama', file=sys.stderr)
+                print('    or download from: https://ollama.com/download', file=sys.stderr)
+                sys.exit(1)
+            print()
+            ret = subprocess.run(['brew', 'install', 'ollama'])
+            if ret.returncode != 0 or not ollama_installed():
+                err('Homebrew install failed. Try downloading directly:')
+                print('    https://ollama.com/download', file=sys.stderr)
+                sys.exit(1)
+            ok('Ollama installed via Homebrew.')
+        else:
+            print()
+            err('Homebrew not found. Install Ollama manually on macOS:')
+            print('    Option 1 — install Homebrew first: https://brew.sh', file=sys.stderr)
+            print('               then: brew install ollama', file=sys.stderr)
+            print('    Option 2 — download directly: https://ollama.com/download', file=sys.stderr)
+            sys.exit(1)
+
+    else:
+        print()
+        err(f'Unsupported platform ({sys.platform}). Install Ollama manually:')
+        print('    https://ollama.com/download', file=sys.stderr)
         sys.exit(1)
-    print()
-    ret = subprocess.run('curl -fsSL https://ollama.com/install.sh | sh', shell=True)
-    if ret.returncode != 0 or not ollama_installed():
-        err('Installation failed. Try manually:')
-        print('    curl -fsSL https://ollama.com/install.sh | sh', file=sys.stderr)
-        sys.exit(1)
-    ok('Ollama installed.')
 
 
 # ── 2. Service reachable? ────────────────────────────────────────────────────
@@ -90,7 +128,7 @@ def start_ollama():
         if i % 5 == 4:
             info(f'Waiting for Ollama service... ({i+1}s)')
     err('Ollama service did not become reachable within 15 seconds.')
-    err('Try running: ollama serve')
+    err('Try running manually: ollama serve')
     sys.exit(1)
 
 

@@ -35,21 +35,31 @@ Local searchable index of all your git repos. Combines FTS5 keyword search with 
 ## Prerequisites
 
 - Python 3.10+ (stdlib only — no pip installs required)
-- Ollama with `nomic-embed-text` pulled (`ollama pull nomic-embed-text`)
+- Ollama with `nomic-embed-text` — installed automatically on first run if missing
+
+## Platform Support
+
+| Platform | Status |
+|---|---|
+| Linux | ✅ Fully supported |
+| macOS | ✅ Fully supported (Homebrew used for Ollama install) |
+| Windows (native) | ❌ Not supported — use WSL (Windows Subsystem for Linux) |
+
+On Windows, install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and run repo-browser inside it as you would on Linux.
 
 ## Installation and Usage
 
-Clone the repo and add the wrapper script to your PATH:
+Clone the repo and add the launcher to your PATH:
 
 ```bash
 git clone <repo-url> /path/to/repo-browser
 cd /path/to/repo-browser
 
-# Option A: symlink into a directory already in your PATH
-ln -s "$(pwd)/repo-browser.sh" ~/bin/repo-browser.sh
+# Option A: symlink the Python launcher into a directory already in your PATH
+ln -s "$(pwd)/repo-browser.py" ~/bin/repo-browser.py
 
-# Option B: copy instead
-cp repo-browser.sh ~/bin/repo-browser.sh
+# Option B: symlink the shell wrapper (also works, delegates to repo-browser.py)
+ln -s "$(pwd)/repo-browser.sh" ~/bin/repo-browser.sh
 ```
 
 Start the server:
@@ -87,13 +97,15 @@ Refresh the browser. Your repos are now searchable.
 ## CLI
 
 ```bash
-repo-browser.sh start     # start server on :8642
-repo-browser.sh stop      # stop server
-repo-browser.sh restart   # stop + start
-repo-browser.sh status    # PID, config source, repo/tag/embed counts
-repo-browser.sh rescan    # re-scan git dir + re-embed (server stays up)
-repo-browser.sh duplist    # report duplicate clones to ~/Clone-Duplist.txt
+repo-browser.py start     # start server on :8642
+repo-browser.py stop      # stop server
+repo-browser.py restart   # stop + start
+repo-browser.py status    # PID, config source, repo/tag/embed counts
+repo-browser.py rescan    # re-scan git dir + re-embed (server stays up)
+repo-browser.py duplist   # report duplicate clones to ~/Clone-Duplist.txt
 ```
+
+The `.sh` wrapper is still available and delegates to `repo-browser.py` for backward compatibility.
 
 ## Configuration
 
@@ -111,7 +123,8 @@ workDir=/home/user/bin/repo-browser
 
 | File | Purpose |
 |---|---|
-| `repo-browser.sh` | Wrapper script — start/stop/restart/status/rescan |
+| `repo-browser.py` | Cross-platform launcher — start/stop/restart/status/rescan/duplist |
+| `repo-browser.sh` | Thin shell wrapper — delegates to `repo-browser.py` |
 | `scan_repos.py` | Walks `gitParent`, extracts metadata, auto-generates tags, deduplicates by remote URL, populates SQLite |
 | `embed_repos.py` | Generates semantic embeddings via Ollama `nomic-embed-text` |
 | `repo_search.py` | HTTP server on port 8642 — search API + settings API + serves UI |
