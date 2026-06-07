@@ -97,11 +97,20 @@ c.close()
     fi
 }
 
+ensure_ollama() {
+    if [ ! -f "$DIR/ensure_ollama.py" ]; then
+        echo "Warning: ensure_ollama.py not found in $DIR — skipping Ollama check"
+        return 0
+    fi
+    cd "$DIR" && python3 ensure_ollama.py
+}
+
 rescan() {
     if [ -z "$gitParent" ]; then
         echo "gitParent not configured. Set it in /etc/rb.config or via the UI gear icon."
         return 1
     fi
+    ensure_ollama || return 1
     echo "Scanning repos..."
     cd "$DIR" && python3 scan_repos.py
     echo ""
