@@ -337,7 +337,7 @@ function renderRepos(repos, showScore) {
     return `<div class="repo-card">
       <div class="repo-name">${nameHtml} ${badge}</div>
       <div class="repo-path">${esc(r.path)}</div>
-      ${r.description ? `<div class="repo-desc">${esc(r.description)}</div>` : ''}
+      ${(r.summary || r.description) ? `<div class="repo-desc">${esc(r.summary || r.description)}</div>` : ''}
       <div class="repo-tags">${tags.map(t=>`<span class="tag" onclick="searchTag('${esc(t)}')">${esc(t)}</span>`).join('')}</div>
       <div class="repo-meta">${r.default_branch?`<span>⎇ ${esc(r.default_branch)}</span>`:''} ${lc?`<span>⏱ ${lc}</span>`:''}</div>
     </div>`;

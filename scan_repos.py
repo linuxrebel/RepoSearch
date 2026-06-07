@@ -67,12 +67,17 @@ def init_db(conn):
             path TEXT NOT NULL UNIQUE,
             url TEXT,
             description TEXT,
+            summary TEXT,
             readme_snippet TEXT,
             last_commit TEXT,
             default_branch TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
+        -- migrate: add summary column if upgrading from older schema
+        -- (SQLite ignores this if column already exists via the CREATE above,
+        --  but existing DBs need an explicit ALTER)
+
 
         CREATE TABLE IF NOT EXISTS repo_tags (
             repo_id INTEGER NOT NULL,
@@ -103,6 +108,10 @@ def init_db(conn):
             content='', content_rowid='rowid'
         );
     ''')
+    # Migrate existing DB: add summary column if missing
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(repos)').fetchall()]
+    if 'summary' not in cols:
+        conn.execute('ALTER TABLE repos ADD COLUMN summary TEXT')
     conn.commit()
 
 
@@ -139,15 +148,103 @@ def get_last_commit(repo_path):
     return git_cmd(repo_path, 'log', '-1', '--format=%aI')
 
 
+def extract_summary(content, repo_name):
+    """
+    Extract a 1-2 sentence TLDR from README content.
+    Skips: title headings, badge lines, short lines, code blocks, HTML tags.
+    Returns a string of up to 2 sentences, or None.
+    """
+    name_lower = repo_name.lower().replace('-', ' ').replace('_', ' ')
+    lines = content.split('\n')
+    in_code_block = False
+    paragraphs = []
+    current = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track fenced code blocks
+        if stripped.startswith('```') or stripped.startswith('~~~'):
+            in_code_block = not in_code_block
+            if current:
+                paragraphs.append(' '.join(current))
+                current = []
+            continue
+        if in_code_block:
+            continue
+
+        # Blank line = paragraph break
+        if not stripped:
+            if current:
+                paragraphs.append(' '.join(current))
+                current = []
+            continue
+
+        # Skip headings
+        if stripped.startswith('#'):
+            if current:
+                paragraphs.append(' '.join(current))
+                current = []
+            continue
+
+        # Skip badge/image lines
+        if re.match(r'^\[?!\[', stripped):
+            continue
+
+        # Skip HTML tags
+        if re.match(r'^<[^>]+>', stripped):
+            continue
+
+        # Skip horizontal rules
+        if re.match(r'^[-=*_]{3,}$', stripped):
+            continue
+
+        # Strip inline markup: **bold**, _italic_, `code`, [text](url)
+        clean = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', stripped)  # links
+        clean = re.sub(r'[*_`]', '', clean)
+        clean = re.sub(r'<[^>]+>', '', clean)
+        clean = clean.strip()
+
+        # Must be prose: at least 35 chars, contains a space, not just a URL
+        if len(clean) < 35:
+            continue
+        if ' ' not in clean:
+            continue
+        if clean.startswith('http'):
+            continue
+
+        # Skip lines that are just the repo name / title reworded
+        if clean.lower().replace('-', ' ').replace('_', ' ').startswith(name_lower):
+            if len(clean) < len(name_lower) + 20:
+                continue
+
+        current.append(clean)
+
+    if current:
+        paragraphs.append(' '.join(current))
+
+    if not paragraphs:
+        return None
+
+    # Take the first good paragraph, cap to 2 sentences
+    para = paragraphs[0]
+    # Split on sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', para)
+    summary = ' '.join(sentences[:2])
+    return summary[:300] if summary else None
+
+
 def get_readme(repo_path):
-    """Return (description, full_snippet) from README."""
+    """Return (description, summary, full_snippet) from README."""
     for name in ['README.md', 'README.rst', 'README.txt', 'README']:
         p = os.path.join(repo_path, name)
         if os.path.exists(p):
             try:
                 with open(p, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(4000)
-                # Extract first meaningful line as description
+                repo_name = os.path.basename(repo_path)
+                summary = extract_summary(content, repo_name)
+                # Legacy description: first meaningful line (kept for FTS)
                 lines = content.split('\n')
                 desc = None
                 for line in lines:
@@ -156,10 +253,10 @@ def get_readme(repo_path):
                     if len(clean) > 10:
                         desc = clean[:200]
                         break
-                return desc, content[:2000]
+                return desc, summary, content[:2000]
             except Exception:
                 pass
-    return None, None
+    return None, None, None
 
 
 def detect_languages(repo_path):
@@ -305,7 +402,7 @@ def scan_and_populate():
     for rpath in sorted(repo_paths):
         name = os.path.basename(rpath)
         url = get_remote_url(rpath)
-        desc, readme = get_readme(rpath)
+        desc, summary, readme = get_readme(rpath)
         last_commit = get_last_commit(rpath)
         branch = get_default_branch(rpath)
 
@@ -327,18 +424,18 @@ def scan_and_populate():
         if existing:
             repo_id = existing[0]
             conn.execute('''
-                UPDATE repos SET name=?, url=?, description=?,
+                UPDATE repos SET name=?, url=?, description=?, summary=?,
                 readme_snippet=?, last_commit=?, default_branch=?,
                 updated_at=datetime('now')
                 WHERE id=?
-            ''', (name, url, desc, readme, last_commit, branch, repo_id))
+            ''', (name, url, desc, summary, readme, last_commit, branch, repo_id))
             updated += 1
         else:
             cur = conn.execute('''
-                INSERT INTO repos (name, path, url, description,
+                INSERT INTO repos (name, path, url, description, summary,
                 readme_snippet, last_commit, default_branch)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (name, rpath, url, desc, readme, last_commit, branch))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (name, rpath, url, desc, summary, readme, last_commit, branch))
             repo_id = cur.lastrowid
             added += 1
 
