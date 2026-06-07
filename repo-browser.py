@@ -86,10 +86,10 @@ def kill_stale_on_port():
 
 # ── Ollama gate ───────────────────────────────────────────────────────────────
 
-def ensure_ollama(work_dir: str) -> bool:
-    script = Path(work_dir) / 'ensure_ollama.py'
+def ensure_ollama() -> bool:
+    script = SCRIPT_DIR / 'ensure_ollama.py'
     if not script.exists():
-        print(f'Error: ensure_ollama.py not found in {work_dir}')
+        print(f'Error: ensure_ollama.py not found in {SCRIPT_DIR}')
         return False
     ret = subprocess.run([sys.executable, str(script)])
     if ret.returncode != 0:
@@ -105,7 +105,7 @@ def cmd_start(cfg: dict) -> int:
         print(f'Already running (PID {get_pid()})')
         return 1
 
-    if not ensure_ollama(cfg['workDir']):
+    if not ensure_ollama():
         return 1
 
     kill_stale_on_port()
@@ -113,15 +113,15 @@ def cmd_start(cfg: dict) -> int:
     if not cfg['gitParent'] and cfg['_source']:
         print('Warning: gitParent not set in config')
 
-    server = Path(cfg['workDir']) / 'repo_search.py'
+    server = SCRIPT_DIR / 'repo_search.py'
     if not server.exists():
-        print(f'Error: repo_search.py not found in {cfg["workDir"]}')
+        print(f'Error: repo_search.py not found in {SCRIPT_DIR}')
         return 1
 
     log = open('/tmp/repo-browser.log', 'w')
     proc = subprocess.Popen(
         [sys.executable, str(server)],
-        cwd=cfg['workDir'],
+        cwd=str(SCRIPT_DIR),
         stdout=log,
         stderr=log,
         start_new_session=True,
@@ -187,13 +187,13 @@ def cmd_rescan(cfg: dict) -> int:
     if not cfg['gitParent']:
         print('gitParent not configured. Set it in /etc/rb.config or via the UI gear icon.')
         return 1
-    if not ensure_ollama(cfg['workDir']):
+    if not ensure_ollama():
         return 1
     print('Scanning repos...')
-    subprocess.run([sys.executable, 'scan_repos.py'], cwd=cfg['workDir'])
+    subprocess.run([sys.executable, 'scan_repos.py'], cwd=str(SCRIPT_DIR))
     print()
     print('Updating embeddings...')
-    subprocess.run([sys.executable, 'embed_repos.py'], cwd=cfg['workDir'])
+    subprocess.run([sys.executable, 'embed_repos.py'], cwd=str(SCRIPT_DIR))
     print()
     if running():
         print('Server is running — refresh browser to see changes')
@@ -206,7 +206,7 @@ def cmd_duplist(cfg: dict) -> int:
     if not cfg['gitParent']:
         print('gitParent not configured. Set it in /etc/rb.config or via the UI gear icon.')
         return 1
-    subprocess.run([sys.executable, 'find-dupe.py'], cwd=cfg['workDir'])
+    subprocess.run([sys.executable, 'find-dupe.py'], cwd=str(SCRIPT_DIR))
     return 0
 
 
@@ -216,7 +216,7 @@ def cmd_dupclean(cfg: dict) -> int:
         print('gitParent not configured. Set it in /etc/rb.config or via the UI gear icon.')
         return 1
     try:
-        subprocess.run([sys.executable, 'dupe_clean.py'], cwd=cfg['workDir'])
+        subprocess.run([sys.executable, 'dupe_clean.py'], cwd=str(SCRIPT_DIR))
     except KeyboardInterrupt:
         pass  # child already printed summary and exited cleanly
     return 0
