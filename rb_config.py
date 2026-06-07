@@ -28,7 +28,11 @@ def get_git_root():
 
 def get_work_dir():
     cfg = load_config()
-    return cfg.get('workDir', os.path.dirname(os.path.abspath(__file__)))
+    configured = cfg.get('workDir', '')
+    if configured and os.path.isdir(configured):
+        return configured
+    # Fallback: use the directory containing rb_config.py (SCRIPT_DIR)
+    return os.path.dirname(os.path.abspath(__file__))
 
 def get_db_path():
     return os.path.join(get_work_dir(), 'repos.db')
