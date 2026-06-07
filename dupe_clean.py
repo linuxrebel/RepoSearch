@@ -152,7 +152,10 @@ def _draw_one(stdscr, dupes, group_idx, cursor_path,
 
 
 def run_tui(dupes):
-    """Run the TUI. Returns updated dupes list, or None if user quit."""
+    """
+    Drive the per-repo select → confirm → delete loop.
+    Returns (deleted_count, skipped_count) when finished or user quits.
+    """
     return curses.wrapper(_tui_main, dupes)
 
 
@@ -175,84 +178,84 @@ def _tui_main(stdscr, dupes):
     cp_cursor = curses.color_pair(5)
     cp_dim    = curses.color_pair(6) | curses.A_DIM
 
-    group_idx   = 0
-    cursor_path = dupes[0]['keep']  # start on the default-keep path
+    total_deleted = 0
+    total_skipped = 0
 
-    while True:
-        _draw_one(stdscr, dupes, group_idx, cursor_path,
-                  cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
+    for group_idx, group in enumerate(dupes):
+        cursor_path = group['keep']
 
-        key = stdscr.getch()
-        group = dupes[group_idx]
-        n_paths = len(group['paths'])
+        # ── Selection loop for this repo ──────────────────────────────
+        while True:
+            _draw_one(stdscr, dupes, group_idx, cursor_path,
+                      cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
 
-        if key in (ord('q'), ord('Q')):
-            return None
+            key = stdscr.getch()
+            n_paths = len(group['paths'])
 
-        elif key in (ord('d'), ord('D')):
-            return dupes
+            if key in (ord('q'), ord('Q'), 3):  # 3 = Ctrl-C
+                # Quit — report what was done so far
+                return total_deleted, total_skipped
 
-        elif key in (curses.KEY_UP, ord('k')):
-            cursor_path = max(0, cursor_path - 1)
+            elif key in (curses.KEY_UP, ord('k')):
+                cursor_path = max(0, cursor_path - 1)
 
-        elif key in (curses.KEY_DOWN, ord('j')):
-            cursor_path = min(n_paths - 1, cursor_path + 1)
+            elif key in (curses.KEY_DOWN, ord('j')):
+                cursor_path = min(n_paths - 1, cursor_path + 1)
 
-        elif key == ord(' '):
-            group['keep'] = cursor_path
+            elif key == ord(' '):
+                group['keep'] = cursor_path
 
-        elif key in (curses.KEY_RIGHT, ord('n'), ord('l')):
-            # next group
-            if group_idx < len(dupes) - 1:
-                group_idx += 1
-                cursor_path = dupes[group_idx]['keep']
+            elif key in (10, 13, curses.KEY_ENTER, curses.KEY_RIGHT,
+                         ord('n'), ord('l')):
+                # Confirm selection → proceed to deletion for this repo
+                group['keep'] = cursor_path
+                break
 
-        elif key in (curses.KEY_LEFT, ord('p'), ord('h')):
-            # previous group
-            if group_idx > 0:
-                group_idx -= 1
-                cursor_path = dupes[group_idx]['keep']
+            elif key in (ord('s'), ord('S')):
+                # Skip this repo without deleting anything
+                break
 
-        elif key == curses.KEY_RESIZE:
-            pass
+            elif key == curses.KEY_RESIZE:
+                pass
 
-
-# ── deletion ─────────────────────────────────────────────────────────────────
-
-def confirm_and_delete(dupes):
-    to_delete = []
-    for group in dupes:
+        # ── Deletion confirmations for this repo ──────────────────────
         keep_path = group['paths'][group['keep']]
-        for path in group['paths']:
-            if path != keep_path:
-                to_delete.append((path, keep_path))
+        to_delete = [p for p in group['paths'] if p != keep_path]
 
-    if not to_delete:
-        print("Nothing to delete.")
-        return
+        if to_delete:
+            # Temporarily leave curses for normal terminal I/O
+            curses.def_prog_mode()
+            curses.endwin()
 
-    print(f"\n{len(to_delete)} path(s) staged for deletion:\n")
-    deleted = 0
-    skipped = 0
-    errors = 0
+            print(f"\n  {group['name']}")
+            print(f"  Keep : {keep_path}\n")
 
-    for path, keep_path in to_delete:
-        print(f"  Keep : {keep_path}")
-        ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
-        if ans == 'y':
-            try:
-                shutil.rmtree(path)
-                print("  Deleted.\n")
-                deleted += 1
-            except Exception as e:
-                print(f"  ERROR: {e}\n")
-                errors += 1
-        else:
-            print("  Skipped.\n")
-            skipped += 1
+            for path in to_delete:
+                ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
+                if ans == 'y':
+                    try:
+                        shutil.rmtree(path)
+                        print("  Deleted.\n")
+                        total_deleted += 1
+                    except Exception as e:
+                        print(f"  ERROR: {e}\n")
+                else:
+                    print("  Skipped.\n")
+                    total_skipped += 1
 
-    print(f"Done: {deleted} deleted, {skipped} skipped" +
-          (f", {errors} errors" if errors else "") + ".")
+            if group_idx < len(dupes) - 1:
+                input("  Press Enter for next repo...")
+
+            # Restore curses
+            stdscr.refresh()
+
+    return total_deleted, total_skipped
+
+
+# ── deletion summary ──────────────────────────────────────────────────────────
+
+def print_summary(deleted, skipped):
+    print(f"\nDone: {deleted} deleted, {skipped} skipped.")
     if deleted > 0:
         print("Run 'repo-browser.py rescan' to update the search index.")
 
@@ -264,20 +267,25 @@ def main():
         print("Error: gitParent not configured. Run 'repo-browser.py start' and set it via the Settings UI.")
         sys.exit(1)
 
-    print("Scanning for duplicates...")
-    dupes = find_dupes_with_paths()
+    try:
+        print("Scanning for duplicates...")
+        dupes = find_dupes_with_paths()
 
-    if not dupes:
-        print("No duplicate clones found.")
-        return
+        if not dupes:
+            print("No duplicate clones found.")
+            return
 
-    result = run_tui(dupes)
+        deleted, skipped = run_tui(dupes)
+        print_summary(deleted, skipped)
 
-    if result is None:
-        print("Cancelled — no changes made.")
-        return
-
-    confirm_and_delete(result)
+    except KeyboardInterrupt:
+        # Ensure terminal is restored if curses left it raw
+        try:
+            curses.endwin()
+        except Exception:
+            pass
+        print("\nInterrupted.")
+        sys.exit(0)
 
 
 if __name__ == '__main__':
