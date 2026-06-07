@@ -269,10 +269,12 @@ def scan_and_populate():
             no_url.append(rpath)
 
     deduped = []
+    url_dupe_groups = 0
     for norm_url, paths in url_map.items():
         if len(paths) == 1:
             deduped.append(paths[0])
         else:
+            url_dupe_groups += 1
             # Prefer deepest path (most specific category folder)
             best = max(paths, key=lambda p: p.count(os.sep))
             deduped.append(best)
@@ -282,16 +284,19 @@ def scan_and_populate():
     for rpath in no_url:
         name = os.path.basename(rpath)
         name_map.setdefault(name, []).append(rpath)
+    name_dupe_groups = 0
     for name, paths in name_map.items():
         if len(paths) == 1:
             deduped.append(paths[0])
         else:
+            name_dupe_groups += 1
             best = max(paths, key=lambda p: p.count(os.sep))
             deduped.append(best)
 
+    dupe_groups = url_dupe_groups + name_dupe_groups
     removed = len(repo_paths) - len(deduped)
     if removed > 0:
-        print(f"Deduped: {removed} duplicates removed, {len(deduped)} unique repos")
+        print(f"Deduped: {dupe_groups} repos have duplicates ({removed} extra copies removed), {len(deduped)} unique repos kept")
     repo_paths = deduped
 
     added = 0
