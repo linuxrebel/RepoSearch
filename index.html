@@ -1,24 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Repo Browser</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
-  :root {
+
+  /* ── Dark theme (default) ── */
+  :root, [data-theme="dark"] {
     --bg: #0a0e14; --surface: #11151c; --surface2: #1a1f2b;
     --border: #2a3040; --text: #c5cdd8; --text-dim: #6b7a8d;
     --accent: #39d353; --accent2: #58a6ff; --accent3: #f0883e;
     --tag-bg: #1e2733; --tag-text: #7eb8da;
+    --header-bg: rgba(10,14,20,0.95);
+    --modal-overlay: rgba(0,0,0,0.7);
   }
+
+  /* ── Light theme ── */
+  [data-theme="light"] {
+    --bg: #f0f4f8; --surface: #ffffff; --surface2: #e4eaf1;
+    --border: #c8d3df; --text: #1c2b3a; --text-dim: #5a6a7a;
+    --accent: #1a8f35; --accent2: #0969da; --accent3: #c05c10;
+    --tag-bg: #ddeeff; --tag-text: #0969da;
+    --header-bg: rgba(240,244,248,0.95);
+    --modal-overlay: rgba(0,0,0,0.45);
+  }
+
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; transition:background 0.2s, color 0.2s; }
 
   .header {
     border-bottom:1px solid var(--border); padding:1rem 2rem;
     display:flex; align-items:center; gap:1.5rem;
-    position:sticky; top:0; background:rgba(10,14,20,0.95); z-index:100;
+    position:sticky; top:0; background:var(--header-bg); z-index:100;
     backdrop-filter:blur(12px);
   }
   .logo { font-family:'JetBrains Mono',monospace; font-weight:600; font-size:1.1rem; color:var(--accent); white-space:nowrap; }
@@ -52,6 +67,9 @@
   .score-high { background:rgba(57,211,83,0.15); color:#39d353; }
   .score-mid  { background:rgba(240,136,62,0.15); color:#f0883e; }
   .score-low  { background:rgba(107,122,141,0.15); color:#6b7a8d; }
+  [data-theme="light"] .score-high { background:rgba(26,143,53,0.12); color:#1a8f35; }
+  [data-theme="light"] .score-mid  { background:rgba(192,92,16,0.12); color:#c05c10; }
+  [data-theme="light"] .score-low  { background:rgba(90,106,122,0.12); color:#5a6a7a; }
   .repo-path { font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--text-dim); margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .repo-desc { font-size:0.85rem; color:var(--text); line-height:1.5; margin-bottom:0.7rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .repo-tags { display:flex; flex-wrap:wrap; gap:0.35rem; }
@@ -68,14 +86,34 @@
   .mode-btn.active { background:var(--accent2); color:var(--bg); border-color:var(--accent2); }
   .mode-btn:hover:not(.active) { border-color:var(--text-dim); }
 
-  /* Gear button */
-  .gear-btn { background:none; border:none; cursor:pointer; padding:4px; display:flex; align-items:center; }
-  .gear-btn svg { width:22px; height:22px; stroke:var(--text-dim); transition:stroke 0.2s, transform 0.3s; }
-  .gear-btn:hover svg { stroke:var(--accent); transform:rotate(45deg); }
+  /* ── Theme toggle ── */
+  .theme-btn {
+    background:none; border:1px solid var(--border); cursor:pointer;
+    padding:4px 10px; border-radius:6px;
+    display:flex; align-items:center; gap:0.4rem;
+    color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:0.7rem;
+    transition:border-color 0.2s, color 0.2s;
+    white-space:nowrap;
+  }
+  .theme-btn svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; flex-shrink:0; }
+  .theme-btn:hover { border-color:var(--accent2); color:var(--accent2); }
 
-  /* Modal overlay */
+  /* ── Settings (gear) button ── */
+  .gear-btn {
+    background:none; border:1px solid var(--border); cursor:pointer;
+    padding:4px 10px; border-radius:6px;
+    display:flex; align-items:center; gap:0.4rem;
+    color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:0.7rem;
+    transition:border-color 0.2s, color 0.2s, transform 0.2s;
+    white-space:nowrap;
+  }
+  .gear-btn svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; flex-shrink:0; transition:transform 0.3s; }
+  .gear-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .gear-btn:hover svg { transform:rotate(45deg); }
+
+  /* ── Modal overlay ── */
   .modal-overlay {
-    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+    display:none; position:fixed; inset:0; background:var(--modal-overlay);
     z-index:200; justify-content:center; align-items:center;
   }
   .modal-overlay.open { display:flex; }
@@ -121,7 +159,7 @@
     border:1px solid rgba(57,211,83,0.3); color:var(--accent); white-space:pre-line; display:none;
   }
 
-  /* Directory browser */
+  /* ── Directory browser ── */
   .dir-browser {
     display:none; background:var(--bg); border:1px solid var(--border); border-radius:8px;
     max-height:250px; overflow-y:auto; margin-bottom:1rem;
@@ -155,10 +193,18 @@
     <button class="mode-btn" data-mode="semantic">semantic</button>
   </div>
   <div class="stats" id="stats"></div>
+  <!-- Theme toggle -->
+  <button class="theme-btn" id="themeBtn" title="Toggle light/dark theme">
+    <!-- icon swapped by JS -->
+    <svg id="themeIcon" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"></svg>
+    <span id="themeLabel"></span>
+  </button>
+  <!-- Settings -->
   <button class="gear-btn" id="gearBtn" title="Settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
+    Settings
   </button>
 </div>
 
@@ -203,6 +249,35 @@ const tagCloud = document.getElementById('tagCloud');
 const tagToggle = document.getElementById('tagToggle');
 let debounceTimer = null, searchMode = 'both', allRepos = [];
 
+// ── Theme toggle ──────────────────────────────────────────────
+const html = document.documentElement;
+const themeBtn = document.getElementById('themeBtn');
+const themeIcon = document.getElementById('themeIcon');
+const themeLabel = document.getElementById('themeLabel');
+
+const MOON_PATH = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+const SUN_PATH  = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+
+function applyTheme(theme) {
+  html.setAttribute('data-theme', theme);
+  if (theme === 'dark') {
+    themeIcon.innerHTML = MOON_PATH;  // dark mode → show sun to switch to light
+    themeLabel.textContent = 'Light';
+  } else {
+    themeIcon.innerHTML = SUN_PATH;   // light mode → show moon to switch to dark
+    themeLabel.textContent = 'Dark';
+  }
+  localStorage.setItem('rb-theme', theme);
+}
+
+themeBtn.addEventListener('click', () => {
+  applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+
+// Restore saved theme on load
+applyTheme(localStorage.getItem('rb-theme') || 'dark');
+
+// ── Search mode buttons ───────────────────────────────────────
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelector('.mode-btn.active').classList.remove('active');
@@ -267,7 +342,7 @@ function renderRepos(repos, showScore) {
 }
 function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
 
-// --- Settings ---
+// ── Settings ──────────────────────────────────────────────────
 const gearBtn = document.getElementById('gearBtn');
 const settingsModal = document.getElementById('settingsModal');
 gearBtn.addEventListener('click', openSettings);
@@ -305,7 +380,7 @@ async function saveConfig() {
   msg.style.display = 'block';
 }
 
-// --- Directory Browser ---
+// ── Directory Browser ─────────────────────────────────────────
 function closeBrowsers() {
   document.querySelectorAll('.dir-browser').forEach(b => b.classList.remove('open'));
 }
