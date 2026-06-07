@@ -2,7 +2,7 @@
 
 Local searchable index of all your git repos. Combines FTS5 keyword search with semantic vector search (via Ollama) so you can find repos by name, tag, or plain English description like "something that monitors kubernetes pods".
 
-![repo-browser UI](screenshot.png)
+![repo-browser UI](images/screenshot.png)
 
 ---
 
