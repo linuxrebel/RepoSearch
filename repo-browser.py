@@ -9,6 +9,7 @@ Commands:
   status   — PID, config, repo/embed/tag counts
   rescan   — re-scan repos and re-embed (server stays up)
   duplist  — report duplicate clones to ~/Clone-Duplist.txt
+  dupclean — interactive TUI to choose which duplicate clones to delete
 """
 
 import os
@@ -209,15 +210,25 @@ def cmd_duplist(cfg: dict) -> int:
     return 0
 
 
+def cmd_dupclean(cfg: dict) -> int:
+    """Interactive TUI — choose which duplicate clones to delete."""
+    if not cfg['gitParent']:
+        print('gitParent not configured. Set it in /etc/rb.config or via the UI gear icon.')
+        return 1
+    subprocess.run([sys.executable, 'dupe_clean.py'], cwd=cfg['workDir'])
+    return 0
+
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 COMMANDS = {
-    'start':   cmd_start,
-    'stop':    cmd_stop,
-    'restart': cmd_restart,
-    'status':  cmd_status,
-    'rescan':  cmd_rescan,
-    'duplist': cmd_duplist,
+    'start':    cmd_start,
+    'stop':     cmd_stop,
+    'restart':  cmd_restart,
+    'status':   cmd_status,
+    'rescan':   cmd_rescan,
+    'duplist':  cmd_duplist,
+    'dupclean': cmd_dupclean,
 }
 
 
