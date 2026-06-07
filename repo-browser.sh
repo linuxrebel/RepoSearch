@@ -100,10 +100,15 @@ c.close()
 
 ensure_ollama() {
     if [ ! -f "$DIR/ensure_ollama.py" ]; then
-        echo "Warning: ensure_ollama.py not found in $DIR — skipping Ollama check"
-        return 0
+        echo "Error: ensure_ollama.py not found in $DIR"
+        return 1
     fi
     cd "$DIR" && python3 ensure_ollama.py
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "Ollama prerequisites not met — aborting."
+    fi
+    return $rc
 }
 
 rescan() {
