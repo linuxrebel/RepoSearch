@@ -100,84 +100,55 @@ def find_dupes_with_paths():
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
 
-def _build_items(dupes):
-    """Flatten groups into a list of display items."""
-    items = []
-    radio_indices = []  # positions in items[] that are radio buttons
-    for gi, group in enumerate(dupes):
-        items.append({'type': 'header', 'group': gi})
-        for pi, path in enumerate(group['paths']):
-            radio_indices.append(len(items))
-            items.append({'type': 'radio', 'group': gi, 'path_idx': pi})
-        items.append({'type': 'spacer'})
-    return items, radio_indices
-
-
-def _draw(stdscr, items, radio_indices, dupes, cursor_radio, scroll_top,
-          cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim):
+def _draw_one(stdscr, dupes, group_idx, cursor_path,
+              cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim):
     h, w = stdscr.getmaxyx()
-    content_h = h - 4
+    group = dupes[group_idx]
+    total = len(dupes)
 
     stdscr.erase()
 
-    # Row 0: title
-    title = f" Duplicate Repo Cleaner  —  {len(dupes)} repos with duplicates "
+    # Row 0: title + progress
+    title = f" Duplicate Repo Cleaner  —  {group_idx + 1} / {total} "
     stdscr.addstr(0, 0, title[:w - 1], cp_title | curses.A_BOLD)
 
     # Row 1: hints
-    hints = " ↑↓ navigate   Space: keep this copy   D: delete others   Q: quit "
+    hints = " ↑↓ select   Space: mark keep   ←→ prev/next repo   D: done   Q: quit "
     stdscr.addstr(1, 0, hints[:w - 1], cp_hint)
 
     # Row 2: separator
     stdscr.addstr(2, 0, '─' * (w - 1), cp_dim)
 
-    # Scroll so cursor item is visible
-    cursor_item_idx = radio_indices[cursor_radio]
-    while cursor_item_idx < scroll_top:
-        scroll_top -= 1
-    while cursor_item_idx >= scroll_top + content_h:
-        scroll_top += 1
+    # Row 3: blank
+    # Row 4: repo name
+    stdscr.addstr(4, 4, group['name'][:w - 6], cp_header | curses.A_BOLD)
 
-    # Content rows
-    row = 3
-    for item_idx in range(scroll_top, len(items)):
+    # Rows 6+: radio options
+    for pi, path in enumerate(group['paths']):
+        row = 6 + pi
         if row >= h - 1:
             break
-        item = items[item_idx]
+        is_keep   = group['keep'] == pi
+        is_cursor = cursor_path == pi
+        marker = '(*) ' if is_keep else '( ) '
+        line = f"  {marker}{path}"
+        if len(line) > w - 1:
+            line = line[:w - 4] + '...'
 
-        if item['type'] == 'header':
-            name = dupes[item['group']]['name']
-            stdscr.addstr(row, 2, name[:w - 4], cp_header | curses.A_BOLD)
+        if is_cursor:
+            stdscr.addstr(row, 0, line.ljust(w - 1)[:w - 1], cp_cursor)
+        elif is_keep:
+            stdscr.addstr(row, 0, line[:w - 1], cp_keep)
+        else:
+            stdscr.addstr(row, 0, line[:w - 1])
 
-        elif item['type'] == 'radio':
-            gi = item['group']
-            pi = item['path_idx']
-            path = dupes[gi]['paths'][pi]
-            is_keep = dupes[gi]['keep'] == pi
-            is_cursor = radio_indices[cursor_radio] == item_idx
-
-            marker = '(*) ' if is_keep else '( ) '
-            line = f"  {marker}{path}"
-            # Truncate with ellipsis if too wide
-            if len(line) > w - 1:
-                line = line[:w - 4] + '...'
-
-            if is_cursor:
-                stdscr.addstr(row, 0, line.ljust(w - 1)[:w - 1], cp_cursor)
-            elif is_keep:
-                stdscr.addstr(row, 0, line[:w - 1], cp_keep)
-            else:
-                stdscr.addstr(row, 0, line[:w - 1])
-
-        # spacer: blank line
-        row += 1
-
-    # Footer
-    footer = f" {cursor_radio + 1}/{len(radio_indices)} "
+    # Footer: progress bar hint
+    pct = int((group_idx + 1) / total * 20)
+    bar = '█' * pct + '░' * (20 - pct)
+    footer = f" [{bar}] {group_idx + 1}/{total} "
     stdscr.addstr(h - 1, 0, footer[:w - 1], cp_dim)
 
     stdscr.refresh()
-    return scroll_top  # may have been adjusted
 
 
 def run_tui(dupes):
@@ -190,13 +161,12 @@ def _tui_main(stdscr, dupes):
     curses.start_color()
     curses.use_default_colors()
 
-    # Color pairs
-    curses.init_pair(1, curses.COLOR_CYAN, -1)          # title
-    curses.init_pair(2, curses.COLOR_YELLOW, -1)         # hints
-    curses.init_pair(3, curses.COLOR_CYAN, -1)           # group header
-    curses.init_pair(4, curses.COLOR_GREEN, -1)          # keep path
-    curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_WHITE)  # cursor row
-    curses.init_pair(6, -1, -1)                          # dim
+    curses.init_pair(1, curses.COLOR_CYAN, -1)
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)
+    curses.init_pair(3, curses.COLOR_CYAN, -1)
+    curses.init_pair(4, curses.COLOR_GREEN, -1)
+    curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(6, -1, -1)
 
     cp_title  = curses.color_pair(1)
     cp_hint   = curses.color_pair(2)
@@ -205,16 +175,16 @@ def _tui_main(stdscr, dupes):
     cp_cursor = curses.color_pair(5)
     cp_dim    = curses.color_pair(6) | curses.A_DIM
 
-    items, radio_indices = _build_items(dupes)
-    cursor_radio = 0
-    scroll_top = 0
+    group_idx   = 0
+    cursor_path = dupes[0]['keep']  # start on the default-keep path
 
     while True:
-        scroll_top = _draw(stdscr, items, radio_indices, dupes,
-                           cursor_radio, scroll_top,
-                           cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
+        _draw_one(stdscr, dupes, group_idx, cursor_path,
+                  cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
 
         key = stdscr.getch()
+        group = dupes[group_idx]
+        n_paths = len(group['paths'])
 
         if key in (ord('q'), ord('Q')):
             return None
@@ -223,22 +193,28 @@ def _tui_main(stdscr, dupes):
             return dupes
 
         elif key in (curses.KEY_UP, ord('k')):
-            if cursor_radio > 0:
-                cursor_radio -= 1
+            cursor_path = max(0, cursor_path - 1)
 
         elif key in (curses.KEY_DOWN, ord('j')):
-            if cursor_radio < len(radio_indices) - 1:
-                cursor_radio += 1
+            cursor_path = min(n_paths - 1, cursor_path + 1)
 
         elif key == ord(' '):
-            item = items[radio_indices[cursor_radio]]
-            dupes[item['group']]['keep'] = item['path_idx']
-            # Auto-advance to next radio after selection
-            if cursor_radio < len(radio_indices) - 1:
-                cursor_radio += 1
+            group['keep'] = cursor_path
+
+        elif key in (curses.KEY_RIGHT, ord('n'), ord('l')):
+            # next group
+            if group_idx < len(dupes) - 1:
+                group_idx += 1
+                cursor_path = dupes[group_idx]['keep']
+
+        elif key in (curses.KEY_LEFT, ord('p'), ord('h')):
+            # previous group
+            if group_idx > 0:
+                group_idx -= 1
+                cursor_path = dupes[group_idx]['keep']
 
         elif key == curses.KEY_RESIZE:
-            pass  # just redraw on next loop
+            pass
 
 
 # ── deletion ─────────────────────────────────────────────────────────────────
