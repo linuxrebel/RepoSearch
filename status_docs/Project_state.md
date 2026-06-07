@@ -2,12 +2,12 @@
 
 **Last updated:** 2026-06-06
 **Location:** `/home/james/bin/repo-browser/`
-**Branch:** `jdev` (pending merge to `main`)
+**Branch:** `jdev` (ahead of main — pending PR merge)
 **Owner:** James Sparenberg (linuxrebel)
 
 ## Current State: Functional MVP
 
-The project is usable and running in production on Bairn (Fedora 44). All core features work. No remote/GitHub repo yet — local git only.
+Running in production on Bairn (Fedora 44). All core features work. No remote/GitHub repo yet — local git only.
 
 ## What Works
 
@@ -17,49 +17,44 @@ The project is usable and running in production on Bairn (Fedora 44). All core f
 - **Search**: FTS5 keyword + semantic cosine similarity + name-match + tag-match boost
 - **UI**: Dark + light theme (toggle in header), single-page app at http://localhost:8642
 - **Settings**: Gear icon → config modal with directory browser
-- **Config**: `/etc/rb.config` with fallback to local, fresh install starts without config
-- **CLI**: `repo-browser.py {start|stop|restart|status|rescan|duplist}` (cross-platform Python)
-- **Dedup**: URL-based dedup in scanner; `duplist` reports groups, rescan reports copies removed
-- **Dupe reporter**: `duplist` command → `~/Clone-Duplist.txt`
+- **Config**: `/etc/rb.config` with fallback to local; fresh install starts without config
+- **CLI**: `repo-browser.py {start|stop|restart|status|rescan|duplist|dupclean}` (cross-platform Python)
+- **Dedup**: URL-based dedup in scanner; `duplist` reports groups; rescan reports copies removed
+- **dupclean**: Curses TUI — walks duplicate groups one at a time; S skips, Q/Ctrl-C exits cleanly
 - **TLDR summaries**: Heuristic prose extraction from README, shown on each card
 - **ADA compliant**: Light mode accent colors pass WCAG 2.1 AA (4.5:1 contrast)
 - **macOS support**: `ensure_ollama.py` detects platform, uses `brew install ollama` on macOS
 - **Empty DB ships**: `repos.db` is in `.gitignore`; schema created automatically on first run
+- **Corruption recovery**: Rescan re-creates any missing tables/columns via `ALTER TABLE` migration
 
 ## Git Log (jdev, ahead of main)
 
 ```
+ccbb075 fix: S key skips without delete dialog; Ctrl-C exits cleanly
+b387970 fix: clean Ctrl-C exit during deletion prompts
+a405355 refactor: dupclean processes one repo at a time; clean Ctrl-C exit
+06643f5 docs: update screenshots
+04b1484 refactor: dupclean TUI shows one repo at a time
+4573c44 feat: dupclean — interactive TUI for duplicate repo cleanup
+c7c6dd0 docs: remove repo-browser.sh refs; Windows ⚠️ not ❌
+362ba97 docs: update Project_state.md for jdev session
 3322e0e feat: heuristic TLDR summary on repo cards
 3b9d8bb remove: repo-browser.sh — superseded by repo-browser.py
 ab0dfb0 fix: clarify dedup message — report group count and copy count separately
 6ac1450 Replace bash launcher with repo-browser.py; macOS Ollama support; WSL note in README
 ```
 
-## Full Git Log (main baseline)
+## Bugs Fixed (recent sessions)
 
-```
-8824f6a Rename --duplist to duplist for consistency
-f1bce1e Rewrite README: Installation and Usage, PATH setup, full workflow
-cd1a6cb Remove rb.config from tracking, add rb.config.example template
-ae33a05 Fix port-in-use crash: SO_REUSEADDR + kill stale on start
-9e423c7 Handle fresh install: auto-create DB schema on first request
-055cf80 Fix config fallback: start without /etc/rb.config
-628cd72 Add repo-browser.sh wrapper script
-8cfa773 Update README with full docs
-e751a36 Add config system and settings UI
-b33dd47 Initial commit: repo-browser
-```
-
-## Bugs Fixed This Session
-
-1. **duplist vs rescan count mismatch** — rescan reported N copies removed, duplist reported N groups. Now rescan says "X repos have duplicates (Y extra copies removed)" so both use the same group metric
-2. **macOS `readlink -f`** — BSD `readlink` doesn't support `-f`; fixed by replacing bash launcher with `repo-browser.py` using `pathlib.Path.resolve()`
-3. **README description quality** — first-line heuristic often returned the repo title or badge noise; replaced with `extract_summary()` that finds first real prose paragraph
+1. **duplist vs rescan count mismatch** — rescan reported N copies removed, duplist reported N groups. Now rescan says "X repos have duplicates (Y extra copies removed)"
+2. **macOS `readlink -f`** — BSD readlink doesn't support `-f`; fixed by replacing bash launcher with `repo-browser.py` using `pathlib.Path.resolve()`
+3. **README description quality** — first-line heuristic returned titles or badge noise; replaced with `extract_summary()` that finds first real prose paragraph
+4. **dupclean S-key** — pressing S still showed the delete dialog; fixed with `confirmed` flag before selection `while` loop
+5. **dupclean Ctrl-C traceback** — `endwin() returned ERR` from `curses.wrapper`; fixed by calling `stdscr.refresh()` before any `return` from `_tui_main` when curses has been temporarily ended
 
 ## Known Limitations / Future Work
 
 ### Features Not Yet Built
-- **Duplicate cleanup** — `duplist` reports duplicates but no `dupclean` command yet to remove/archive them
 - **Manual tag editing via UI** — schema supports `source='manual'` but no UI to add/remove tags
 - **Repo detail view** — clicking a card could show full README, all tags, commit history
 - **Batch operations** — select multiple repos for tagging, archiving, or deletion
@@ -82,7 +77,7 @@ b33dd47 Initial commit: repo-browser
 
 ### Packaging
 - **No setup.py/pyproject.toml** — not pip-installable yet
-- **Windows not supported** — WSL required; noted in README
+- **Windows not supported natively** — WSL required; noted in README
 
 ## Environment
 
@@ -97,11 +92,12 @@ b33dd47 Initial commit: repo-browser
 
 | File | Purpose |
 |---|---|
-| `repo-browser.py` | CLI launcher (start/stop/restart/status/rescan/duplist) |
+| `repo-browser.py` | CLI launcher (start/stop/restart/status/rescan/duplist/dupclean) |
 | `scan_repos.py` | Scanner + tag gen + dedup + TLDR summary extraction |
 | `embed_repos.py` | Ollama embedding generator |
 | `repo_search.py` | HTTP server + search engine |
-| `find-dupe.py` | Duplicate clone reporter |
+| `find-dupe.py` | Duplicate clone reporter (writes `~/Clone-Duplist.txt`) |
+| `dupe_clean.py` | Curses TUI for interactive duplicate cleanup |
 | `ensure_ollama.py` | Ollama + model dependency check/install (cross-platform) |
 | `index.html` | Frontend UI (dark/light theme) |
 | `rb_config.py` | Config loader |
@@ -113,6 +109,7 @@ b33dd47 Initial commit: repo-browser
 2. Repo is at `/home/james/bin/repo-browser/` on branch `jdev`
 3. Config is at `/etc/rb.config` (gitParent=/home/james/git, workDir=/home/james/bin/repo-browser)
 4. Start server: `repo-browser.py start` → http://localhost:8642
-5. Key files: `repo_search.py` (merged_search), `scan_repos.py` (scan_and_populate, extract_summary)
+5. Key files: `repo_search.py` (merged_search), `scan_repos.py` (scan_and_populate, extract_summary), `dupe_clean.py` (_tui_main)
 6. Filesystem MCP and Desktop Commander available for file access on Bairn
 7. Desktop Commander `start_process` output is contaminated by neofetch — redirect to files and read back
+8. **Branch rule:** all changes on `jdev` — James merges to main
