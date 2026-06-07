@@ -196,7 +196,8 @@ def cmd_rescan(cfg: dict) -> int:
     subprocess.run([sys.executable, 'embed_repos.py'], cwd=str(SCRIPT_DIR))
     print()
     if running():
-        print('Server is running — refresh browser to see changes')
+        print('Restarting server...')
+        cmd_restart(cfg)
     else:
         print('Server not running — use: repo-browser.py start')
     return 0
