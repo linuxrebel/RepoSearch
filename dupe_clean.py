@@ -230,21 +230,26 @@ def _tui_main(stdscr, dupes):
             print(f"\n  {group['name']}")
             print(f"  Keep : {keep_path}\n")
 
-            for path in to_delete:
-                ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
-                if ans == 'y':
-                    try:
-                        shutil.rmtree(path)
-                        print("  Deleted.\n")
-                        total_deleted += 1
-                    except Exception as e:
-                        print(f"  ERROR: {e}\n")
-                else:
-                    print("  Skipped.\n")
-                    total_skipped += 1
+            try:
+                for path in to_delete:
+                    ans = input(f"  Delete '{path}'? [y/N] ").strip().lower()
+                    if ans == 'y':
+                        try:
+                            shutil.rmtree(path)
+                            print("  Deleted.\n")
+                            total_deleted += 1
+                        except Exception as e:
+                            print(f"  ERROR: {e}\n")
+                    else:
+                        print("  Skipped.\n")
+                        total_skipped += 1
 
-            if group_idx < len(dupes) - 1:
-                input("  Press Enter for next repo...")
+                if group_idx < len(dupes) - 1:
+                    input("  Press Enter for next repo...")
+
+            except KeyboardInterrupt:
+                print("\nInterrupted.")
+                return total_deleted, total_skipped
 
             # Restore curses
             stdscr.refresh()
