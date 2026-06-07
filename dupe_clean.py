@@ -185,6 +185,7 @@ def _tui_main(stdscr, dupes):
         cursor_path = group['keep']
 
         # ── Selection loop for this repo ──────────────────────────────
+        confirmed = False
         while True:
             _draw_one(stdscr, dupes, group_idx, cursor_path,
                       cp_title, cp_hint, cp_header, cp_keep, cp_cursor, cp_dim)
@@ -209,16 +210,21 @@ def _tui_main(stdscr, dupes):
                          ord('n'), ord('l')):
                 # Confirm selection → proceed to deletion for this repo
                 group['keep'] = cursor_path
+                confirmed = True
                 break
 
             elif key in (ord('s'), ord('S')):
                 # Skip this repo without deleting anything
+                confirmed = False
                 break
 
             elif key == curses.KEY_RESIZE:
                 pass
 
         # ── Deletion confirmations for this repo ──────────────────────
+        if not confirmed:
+            continue  # S was pressed — move to next repo silently
+
         keep_path = group['paths'][group['keep']]
         to_delete = [p for p in group['paths'] if p != keep_path]
 
@@ -249,6 +255,7 @@ def _tui_main(stdscr, dupes):
 
             except KeyboardInterrupt:
                 print("\nInterrupted.")
+                stdscr.refresh()  # restore curses so wrapper can call endwin() cleanly
                 return total_deleted, total_skipped
 
             # Restore curses
