@@ -23,3 +23,9 @@ __pycache__/
 *.swo
 *~
 .vscode/
+.playwright-mcp/
+
+# Root-level images (use images/ dir)
+/*.png
+/*.jpg
+/*.gif
