@@ -1,7 +1,12 @@
-# repo-browser requires only stdlib for the server
-# Optional: for future FastAPI upgrade
-# fastapi
-# uvicorn
-
-# Ollama must be running locally for semantic search
-# Pull the embed model: ollama pull nomic-embed-text
+# repo-browser — dependencies
+#
+# All Python imports are stdlib (Python 3.10+). No pip installs required.
+#
+# External runtime requirements:
+#   - Ollama (https://ollama.com) running locally
+#   - Model: nomic-embed-text (install: ollama pull nomic-embed-text)
+#
+# Stdlib modules used:
+#   collections, curses, datetime, http.server, json, math, os, pathlib,
+#   re, shutil, signal, sqlite3, struct, subprocess, sys, time,
+#   urllib.error, urllib.parse, urllib.request
