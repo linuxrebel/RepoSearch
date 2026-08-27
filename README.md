@@ -137,15 +137,13 @@ workDir=/home/user/bin/repo-browser
 
 Type a query and press **Enter** to search; clearing the box restores the full list. Three modes (toggle in the UI header):
 
-- **keyword** — FTS5 full-text search across repo name, description, README, and tags
+- **keyword** — FTS5 full-text search across repo name, description, README, and tags, ranked by BM25. Column weights boost name (8×) and tag (5×) hits over README body (3×). Bare words match as prefixes (`kube` finds `kubernetes`); wrap a phrase in double quotes for an exact match
 - **semantic** — cosine similarity on `nomic-embed-text` vectors via Ollama. Finds conceptually related repos even without keyword overlap. Articles and conjunctions (a/an/the, and/or/…) are stripped from the query before embedding so they don't dilute the vector
-- **both** (default) — weighted blend: 20% keyword + 30% semantic + 20% name match + 30% tag match
+- **both** (default) — hybrid of the two: each repo scores `max(keyword, semantic) + 0.1 × min(keyword, semantic)`, so a strong keyword match isn't diluted by a zero semantic score (or vice versa), with a small boost when both fire
 
 Scoring signals:
-- Exact name match gets highest priority
-- Substring name match (e.g. "MonVisor" finds "MonVisor-Corpus")
-- Tag match (searching "rust" prioritises repos tagged `rust`)
-- Semantic-only results are filtered below a 0.65 cosine threshold to reduce noise
+- Name and tag hits outrank README-body hits via the BM25 column weights, so an exact name or tag match ranks at the top
+- A repo needs either a keyword hit or a semantic score above the 0.30 noise floor to appear — low-but-nonzero cosine matches are filtered out
 
 ## Tag Generation
 
