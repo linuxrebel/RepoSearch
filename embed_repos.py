@@ -21,15 +21,30 @@ Stores float32 vectors in SQLite BLOB. Run after scan_repos.py.
 
 import os
 import json
+import shutil
 import struct
 import sqlite3
 import urllib.request
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rb_config import get_db_path
 
 DB_PATH = get_db_path()
 OLLAMA_URL = 'http://localhost:11434/api/embed'
 MODEL = 'nomic-embed-text'
+
+
+def embed_workers():
+    """Concurrent Ollama embedding requests to run.
+
+    Ollama on a GPU queues and batches internally, so more in-flight requests
+    keep it fed; on CPU inference too many just thrash. GPU → 6, CPU → 3.
+    """
+    # ponytail: presence of the SMI binary is a good-enough GPU proxy; if it's
+    # present but the GPU is broken, Ollama falls back to CPU and 6 workers is
+    # merely a bit eager. Run the SMI query instead if that ever bites.
+    has_gpu = bool(shutil.which('nvidia-smi') or shutil.which('xpu-smi'))
+    return 6 if has_gpu else 3
 
 
 def get_embedding(text):
@@ -87,24 +102,35 @@ def embed_all():
     ''').fetchall()
 
     total = len(rows)
-    print(f"Embedding {total} repos via {MODEL}...")
+    workers = embed_workers()
+    print(f"Embedding {total} repos via {MODEL} ({workers} workers)...")
 
-    for i, row in enumerate(rows):
+    def fetch(row):
+        """Worker thread: call Ollama. Returns (id, name, vec-or-Exception)."""
         repo = dict(row)
-        text = build_embed_text(repo)
         try:
-            vec = get_embedding(text)
-            blob = vec_to_blob(vec)
+            return repo['id'], repo['name'], get_embedding(build_embed_text(repo))
+        except Exception as ex:   # pylint: disable=broad-exception-caught
+            return repo['id'], repo['name'], ex
+
+    # Ollama calls run in parallel; all DB writes stay on this thread since a
+    # single sqlite3 connection isn't safe to share across threads.
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(fetch, row) for row in rows]
+        for fut in as_completed(futures):
+            repo_id, name, result = fut.result()
+            if isinstance(result, Exception):
+                print(f"  SKIP {name}: {result}")
+                continue
             conn.execute('''
                 INSERT OR REPLACE INTO repo_embeddings (repo_id, embedding, model, updated_at)
                 VALUES (?, ?, ?, datetime('now'))
-            ''', (repo['id'], blob, MODEL))
-
-            if (i + 1) % 25 == 0 or i + 1 == total:
+            ''', (repo_id, vec_to_blob(result), MODEL))
+            done += 1
+            if done % 25 == 0 or done == total:
                 conn.commit()
-                print(f"  {i+1}/{total}")
-        except Exception as ex:
-            print(f"  SKIP {repo['name']}: {ex}")
+                print(f"  {done}/{total}")
 
     conn.commit()
 

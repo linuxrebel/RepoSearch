@@ -71,12 +71,25 @@ named `DocuBrowse` (no trailing "r") — only `DocuBrowse-Ent`. Prefix match is 
 symmetric near-matches (e.g. also try the query as a prefix target, or fuzzy/trigram on
 names) when we tighten — recall and precision need fixing together, not just the floor.
 
-## Tier 3 — performance (not started, lower priority: repo count « doc corpus)
+## Tier 3 — performance ✅ (scoped to what fits repo-browser)
 
-- ⬜ **Parallel embed** — repo-browser embeds serial, one Ollama round-trip at a time
-  (`embed_repos.py`). DocuBrowser: ThreadPool → Ollama.
-- ⬜ **Hardware-aware workers** — DocuBrowser `hardware_utils.py` scales worker count to
-  CPU/GPU/RAM. repo-browser: none.
+- ✅ **Parallel embed** — `embed_repos.py` `embed_all` now runs Ollama calls in a
+  `ThreadPoolExecutor`; all DB writes stay on the main thread (one sqlite3 connection
+  isn't safe to share across threads). Was one serial round-trip at a time.
+- ✅ **Hardware-aware workers** — minimal `embed_workers()` inline in `embed_repos.py`:
+  GPU present (`nvidia-smi`/`xpu-smi` on PATH) → 6, else 3. Matches DocuBrowser's
+  `recommended_embed_workers`.
+
+**Deliberately NOT ported** (ponytail — they don't fit repo-browser):
+- `recommended_scan_workers` / ProcessPool scan — that's for RAM-heavy pdfplumber
+  extraction. repo-browser's scan is light git-subprocess + README read with serial DB
+  writes; parallelizing buys little and adds complexity. Scan stays serial.
+- **psutil dependency** — repo-browser's README promises "stdlib only, no pip installs".
+  The GPU check is stdlib (`shutil.which`); we did not add psutil.
+- `wait_for_memory` / memory-pressure backoff — guards the PDF pool's multi-GB workers.
+  Embedding is light (text → vector); no memory guard needed.
+- Full `hardware_utils.py` module + hardware summary banner — one consumer (embed), so
+  the ~10-line heuristic is inlined rather than made a module. Extract if Tier 4 needs it.
 
 ## Tier 4 — capability, more work (not started)
 
