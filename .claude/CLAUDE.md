@@ -1,7 +1,7 @@
 # repo-browser — Project Rules
 
 ## Git workflow
-- **Always work on the `jdev` branch.** Never commit directly to `main`. Ship to `main` via a GitHub PR (`gh pr create --base main --head jdev` → `gh pr merge <n> --merge`), NOT `git merge --ff-only` — `main` carries PR merge commits, so ff-only fails.
+- **Always work on the `development` branch.** Never commit directly to `main`. Ship to `main` via a GitHub PR (`gh pr create --base main --head development` → `gh pr merge <n> --merge`), NOT `git merge --ff-only` — `main` carries PR merge commits, so ff-only fails.
 - **Always `git pull` before editing files or merging branches.** Remote changes may have been pushed from another session or machine.
 - All git commits must be authored as James's user — do not configure or override `user.name` / `user.email`. The system gitconfig is already correct.
 - Never commit release tarballs or built packages to git. They go on the GitHub Releases page only.
