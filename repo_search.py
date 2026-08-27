@@ -21,8 +21,10 @@ Run: python3 repo_search.py
 """
 
 import os
+import re
 import json
 import math
+import secrets
 import struct
 import sqlite3
 import urllib.request
@@ -30,10 +32,41 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from rb_config import get_db_path, get_git_root, get_work_dir, get_config_source, load_config
 
+# Articles + coordinating conjunctions (FANBOYS). Stripped from a query before
+# it is embedded for semantic search: they carry little meaning and dilute the
+# query vector (e.g. "freedom and liberty" embeds better without "and").
+_STOPWORDS = frozenset({
+    'a', 'an', 'the',
+    'and', 'or', 'but', 'nor', 'for', 'so', 'yet',
+})
+
+
+def strip_stopwords(query):
+    """Drop articles/conjunctions from *query* for semantic embedding.
+
+    Keyword/FTS search keeps the original query; this only shapes the vector
+    fed to the embedder. Returns the original query unchanged if filtering
+    would empty it (an all-stopword query still embeds to something).
+    """
+    kept = [w for w in query.split()
+            if re.sub(r'[^a-z]', '', w.lower()) not in _STOPWORDS]
+    return ' '.join(kept) if kept else query
+
 DB_PATH = get_db_path()
 OLLAMA_URL = 'http://localhost:11434/api/embed'
 EMBED_MODEL = 'nomic-embed-text'
 PORT = 8642
+
+# Per-process CSRF secret, injected into served HTML and required on POST.
+CSRF_TOKEN = secrets.token_urlsafe(32)
+
+
+def _hostname_allowed(hostname):
+    """True for loopback host names only — the server is loopback-bound."""
+    hostname = (hostname or '').strip('[]').lower()
+    return (hostname in ('', 'localhost')
+            or hostname == '::1'
+            or hostname.startswith('127.'))
 
 
 def get_db():
@@ -170,7 +203,7 @@ def merged_search(conn, query, limit=30):
     # Semantic search — already 0..1, with floor applied
     sem_scores = {}
     try:
-        query_vec = get_embedding(query)
+        query_vec = get_embedding(strip_stopwords(query))
         sem_results = semantic_search(conn, query_vec, threshold=0.30)
         sem_scores = {repo_id: sim for repo_id, sim in sem_results}
     except Exception:
@@ -281,7 +314,40 @@ def get_all_tags(conn):
 
 
 class RepoHandler(SimpleHTTPRequestHandler):
+    def _host_allowed(self):
+        """Reject requests whose Host header isn't a loopback name.
+
+        The server binds 127.0.0.1, but a browser tricked by DNS rebinding
+        (attacker.com re-resolved to 127.0.0.1) would still send a foreign
+        Host header. Allow only loopback host names; a present port must match.
+        """
+        host = self.headers.get('Host', '')
+        if not host:
+            return True  # HTTP/1.0 clients may omit Host
+        hostname, _, port = host.rpartition(':')
+        if not hostname:            # no colon → all of it landed in `port`
+            hostname, port = port, ''
+        if port and port != str(PORT):
+            return False
+        return _hostname_allowed(hostname)
+
+    def _guard_mutation(self):
+        """Require the per-process CSRF token on state-changing requests.
+
+        The token is injected into the same-origin HTML; a cross-origin
+        attacker page cannot read it, so it cannot forge the X-CSRF-Token
+        header. Sends 403 and returns False on failure.
+        """
+        token = self.headers.get('X-CSRF-Token', '')
+        if not secrets.compare_digest(token, CSRF_TOKEN):
+            self.json_response({'error': 'Forbidden: missing or invalid CSRF token'}, 403)
+            return False
+        return True
+
     def do_GET(self):
+        if not self._host_allowed():
+            self.json_response({'error': 'Forbidden: invalid Host header'}, 403)
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         params = parse_qs(parsed.query)
@@ -357,12 +423,21 @@ class RepoHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
             html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
-            with open(html_path, 'rb') as f:
-                self.wfile.write(f.read())
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html = f.read()
+            # Inject the per-process CSRF token so same-origin JS can read it.
+            meta = f'<meta name="csrf-token" content="{CSRF_TOKEN}">'
+            html = html.replace('</head>', meta + '\n</head>', 1)
+            self.wfile.write(html.encode('utf-8'))
         else:
             super().do_GET()
 
     def do_POST(self):
+        if not self._host_allowed():
+            self.json_response({'error': 'Forbidden: invalid Host header'}, 403)
+            return
+        if not self._guard_mutation():
+            return
         parsed = urlparse(self.path)
         if parsed.path == '/api/config':
             length = int(self.headers.get('Content-Length', 0))

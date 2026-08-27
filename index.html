@@ -267,7 +267,7 @@ const input = document.getElementById('searchInput');
 const statsEl = document.getElementById('stats');
 const tagCloud = document.getElementById('tagCloud');
 const tagToggle = document.getElementById('tagToggle');
-let debounceTimer = null, searchMode = 'both', allRepos = [];
+let searchMode = 'both', allRepos = [];
 
 // ── Theme toggle ──────────────────────────────────────────────
 const html = document.documentElement;
@@ -321,7 +321,10 @@ fetch('/api/tags').then(r=>r.json()).then(d => {
 });
 
 function searchTag(tag) { input.value = tag; doSearch(); }
-input.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(doSearch, 250); });
+// Search fires on Enter — a debounce firing on partial words hurt typing.
+input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+// Clearing the box restores the full list.
+input.addEventListener('input', () => { if (!input.value.trim()) { meta.innerHTML = ''; renderAll(); } });
 
 async function doSearch() {
   const q = input.value.trim();
@@ -390,8 +393,9 @@ async function saveConfig() {
   const gitParent = document.getElementById('cfgGitParent').value.trim();
   const workDir = document.getElementById('cfgWorkDir').value.trim();
   if (!gitParent || !workDir) { alert('Both fields are required'); return; }
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const res = await fetch('/api/config', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
+    method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRF-Token': csrf},
     body: JSON.stringify({gitParent, workDir})
   });
   const data = await res.json();

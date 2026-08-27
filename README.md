@@ -135,10 +135,10 @@ workDir=/home/user/bin/repo-browser
 
 ## Search
 
-Three modes (toggle in the UI header):
+Type a query and press **Enter** to search; clearing the box restores the full list. Three modes (toggle in the UI header):
 
 - **keyword** — FTS5 full-text search across repo name, description, README, and tags
-- **semantic** — cosine similarity on `nomic-embed-text` vectors via Ollama. Finds conceptually related repos even without keyword overlap
+- **semantic** — cosine similarity on `nomic-embed-text` vectors via Ollama. Finds conceptually related repos even without keyword overlap. Articles and conjunctions (a/an/the, and/or/…) are stripped from the query before embedding so they don't dilute the vector
 - **both** (default) — weighted blend: 20% keyword + 30% semantic + 20% name match + 30% tag match
 
 Scoring signals:
@@ -199,6 +199,14 @@ For each repo with duplicates you see all clone paths and pick which one to keep
 | Q / Ctrl-C | Quit cleanly |
 
 After confirming, you are prompted to confirm each individual deletion before anything is removed. Run `repo-browser.py rescan` afterwards to update the search index.
+
+## Security
+
+repo-browser is a single-user local tool with no authentication by design:
+
+- The server binds `127.0.0.1` only
+- A Host-header allowlist rejects non-loopback host names (defends against DNS-rebinding)
+- Saving settings (`POST /api/config`) requires a per-process CSRF token injected into the page
 
 ## Deduplication
 
