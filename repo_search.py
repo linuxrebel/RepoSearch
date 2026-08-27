@@ -124,37 +124,51 @@ def cosine_sim(a, b):
     return dot / (na * nb)
 
 
-def fts_search(conn, query, limit=50):
-    """FTS5 keyword search. Returns list of (repo_id, rank)."""
-    clean = query.replace('"', '').replace("'", '')
-    # Try exact phrase first, then individual tokens
-    results = []
+def build_fts_expr(query):
+    """Build a safe FTS5 MATCH expression.
+
+    Quoted phrases ("import fmt") pass through as phrase literals; bare words
+    become a prefix-OR ("import"* OR "fmt"*) so partial words match. Each token
+    is FTS5-quoted so user input can't inject FTS5 operators (AND/OR/NEAR/:).
+    """
+    parts = []
+    phrases = re.findall(r'"([^"]+)"', query)
+    remainder = re.sub(r'"[^"]*"', ' ', query)
+    bare_tokens = re.findall(r'\w+', remainder.lower())
+    for phrase in phrases:
+        inner = phrase.strip().lower()
+        if inner:
+            parts.append(f'"{inner}"')
+    for t in bare_tokens:
+        parts.append(f'"{t}"*')
+    return ' OR '.join(parts) if parts else None
+
+
+def fts_search(conn, query):
+    """BM25 keyword search over repo_fts. Returns {repo_id: score 0..1}.
+
+    Column weights (name, description, readme_snippet, tags) boost name and
+    tag hits over README body — this subsumes the old separate name/tag
+    boosts. bm25 returns more-negative for better matches; flip + normalize.
+    """
+    expr = build_fts_expr(query)
+    if not expr:
+        return {}
     try:
-        rows = conn.execute('''
-            SELECT rowid, rank FROM repo_fts
-            WHERE repo_fts MATCH ?
-            ORDER BY rank LIMIT ?
-        ''', (f'"{clean}"', limit)).fetchall()
-        results = [(r[0], r[1]) for r in rows]
-    except Exception:
-        pass
-    # Also try token match (OR) for partial coverage
-    tokens = clean.split()
-    if len(tokens) > 1 or not results:
-        try:
-            token_query = ' OR '.join(t for t in tokens if t)
-            rows = conn.execute('''
-                SELECT rowid, rank FROM repo_fts
-                WHERE repo_fts MATCH ?
-                ORDER BY rank LIMIT ?
-            ''', (token_query, limit)).fetchall()
-            existing = {r[0] for r in results}
-            for r in rows:
-                if r[0] not in existing:
-                    results.append((r[0], r[1]))
-        except Exception:
-            pass
-    return results
+        rows = conn.execute(
+            'SELECT rowid, bm25(repo_fts, 8.0, 3.0, 3.0, 5.0) AS rank '
+            'FROM repo_fts WHERE repo_fts MATCH ? ORDER BY rank',
+            (expr,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    if not rows:
+        return {}
+    raw = {rid: -rank for rid, rank in rows}
+    best = max(raw.values())
+    if best <= 0:
+        return {}
+    return {rid: val / best for rid, val in raw.items()}
 
 
 def semantic_search(conn, query_vec, threshold=0.3, limit=50):
@@ -172,108 +186,36 @@ def semantic_search(conn, query_vec, threshold=0.3, limit=50):
     return scored[:limit]
 
 
-def name_match_score(query, repo_name):
-    """Boost for query appearing in repo name."""
-    ql = query.lower()
-    nl = repo_name.lower()
-    if ql == nl:
-        return 1.0     # Exact match
-    if ql in nl or nl in ql:
-        return 0.7      # Substring match (MonVisor in MonVisor-Corpus)
-    # Token overlap
-    qt = set(ql.replace('-', ' ').replace('_', ' ').split())
-    nt = set(nl.replace('-', ' ').replace('_', ' ').split())
-    overlap = qt & nt
-    if overlap:
-        return 0.4 * len(overlap) / max(len(qt), 1)
-    return 0.0
-
-
 def merged_search(conn, query, limit=30):
-    """Combine FTS5, semantic, and name-match into a single ranked list."""
-    # FTS search — normalize to 0..1 range
-    fts_results = fts_search(conn, query)
-    fts_scores = {}
-    if fts_results:
-        # FTS ranks are negative; more negative = better
-        best = abs(min(r[1] for r in fts_results))
-        for repo_id, rank in fts_results:
-            fts_scores[repo_id] = abs(rank) / best if best > 0 else 0
+    """Hybrid BM25 keyword + semantic, ranked by max(fts,sem)+0.1·min.
 
-    # Semantic search — already 0..1, with floor applied
+    Two signals: bm25 keyword score (name/tag columns weighted so those hits
+    win) and cosine semantic score. A repo needs either a keyword hit or a
+    semantic score above the noise floor to appear; max() keeps a strong
+    keyword match from being diluted by a zero semantic score and vice versa,
+    with a small boost when both fire. Returns (repo_id, final, fts, sem).
+    """
+    kw_scores = fts_search(conn, query)
+
     sem_scores = {}
     try:
         query_vec = get_embedding(strip_stopwords(query))
-        sem_results = semantic_search(conn, query_vec, threshold=0.30)
-        sem_scores = {repo_id: sim for repo_id, sim in sem_results}
+        sem_scores = dict(semantic_search(conn, query_vec, threshold=0.30))
     except Exception:
         pass
 
-    # Name-match boost — fetch names for all candidates
-    all_ids = set(fts_scores.keys()) | set(sem_scores.keys())
-    name_scores = {}
-    if all_ids:
-        placeholders = ','.join('?' * len(all_ids))
-        id_list = list(all_ids)
-        rows = conn.execute(
-            f'SELECT id, name FROM repos WHERE id IN ({placeholders})', id_list
-        ).fetchall()
-        for r in rows:
-            name_scores[r[0]] = name_match_score(query, r[1])
-
-    # Also check ALL repo names for direct name hits (catches cases FTS/semantic missed)
-    all_names = conn.execute('SELECT id, name FROM repos').fetchall()
-    for r in all_names:
-        ns = name_match_score(query, r[1])
-        if ns > 0 and r[0] not in all_ids:
-            all_ids.add(r[0])
-            name_scores[r[0]] = ns
-
-    # Tag-match boost — repos with a matching tag score higher
-    query_lower = query.lower().strip()
-    query_tokens = set(query_lower.replace('-', ' ').replace('_', ' ').split())
-    tag_scores = {}
-    if all_ids:
-        placeholders = ','.join('?' * len(list(all_ids)))
-        id_list = list(all_ids)
-        tag_rows = conn.execute(
-            f'SELECT repo_id, tag FROM repo_tags WHERE repo_id IN ({placeholders})',
-            id_list
-        ).fetchall()
-        for repo_id, tag in tag_rows:
-            if tag == query_lower or tag in query_tokens:
-                tag_scores[repo_id] = 1.0
-            elif query_lower in tag or tag in query_lower:
-                tag_scores.setdefault(repo_id, 0.5)
-
-    # Also find repos with matching tags that weren't in FTS/semantic results
-    tag_match_rows = conn.execute(
-        'SELECT DISTINCT repo_id FROM repo_tags WHERE tag = ?', (query_lower,)
-    ).fetchall()
-    for r in tag_match_rows:
-        if r[0] not in all_ids:
-            all_ids.add(r[0])
-            tag_scores[r[0]] = 1.0
-
-    # Merge: weighted blend with name + tag boost
+    sem_floor = 0.30
+    all_ids = set(kw_scores) | {rid for rid, s in sem_scores.items() if s >= sem_floor}
     merged = []
     for rid in all_ids:
-        fts_s = fts_scores.get(rid, 0.0)
+        fts_s = kw_scores.get(rid, 0.0)
         sem_s = sem_scores.get(rid, 0.0)
-        name_s = name_scores.get(rid, 0.0)
-        tag_s = tag_scores.get(rid, 0.0)
-        # Weight: 0.2 keyword + 0.3 semantic + 0.2 name match + 0.3 tag match
-        combined = 0.2 * fts_s + 0.3 * sem_s + 0.2 * name_s + 0.3 * tag_s
-        # Filter noise: need at least one strong signal
-        has_keyword = fts_s > 0
-        has_name = name_s > 0
-        has_tag = tag_s > 0
-        if not has_keyword and not has_name and not has_tag:
-            if sem_s < 0.65:
-                continue
-        elif combined < 0.10:
-            continue
-        merged.append((rid, combined, fts_s, sem_s))
+        if fts_s > 0 and sem_s >= sem_floor:
+            final = min(max(fts_s, sem_s) + 0.1 * min(fts_s, sem_s), 1.0)
+        else:
+            final = max(fts_s, sem_s)
+        if final > 0.01:
+            merged.append((rid, final, fts_s, sem_s))
 
     merged.sort(key=lambda x: -x[1])
     return merged[:limit]
