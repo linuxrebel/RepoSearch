@@ -22,6 +22,7 @@ populates SQLite DB. Idempotent: safe to rerun.
 import os
 import re
 import json
+import signal
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -31,6 +32,17 @@ from rb_config import get_git_root, get_db_path
 
 GIT_ROOT = get_git_root()
 DB_PATH = get_db_path()
+
+# Set by SIGINT so Ctrl-C stops at a safe boundary (between repos) instead of
+# killing the process mid-write. An abrupt crash mid-I/O can drop the SD-card
+# mount, so the scan must unwind cleanly: no partial write, DB closed, WAL flushed.
+_STOP = False
+
+
+def _request_stop(_signum, _frame):
+    global _STOP
+    _STOP = True
+    print('\nStopping after the current repo…', flush=True)
 
 # Language detection by file extension
 EXT_LANG = {
@@ -360,6 +372,7 @@ def scan_and_populate():
     conn = sqlite3.connect(DB_PATH)
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA foreign_keys=ON')
+    signal.signal(signal.SIGINT, _request_stop)
     init_db(conn)
 
     print(f"Scanning {GIT_ROOT}...")
@@ -370,6 +383,8 @@ def scan_and_populate():
     url_map = {}  # url -> list of paths
     no_url = []
     for rpath in repo_paths:
+        if _STOP:
+            break
         url = get_remote_url(rpath)
         if url:
             # Normalize URL for comparison
@@ -414,7 +429,18 @@ def scan_and_populate():
     added = 0
     updated = 0
 
+    # Incremental: only do the expensive metadata + tag extraction for repos not
+    # already indexed. Existing repos are left as-is (stale removal below still
+    # runs off the full on-disk walk, so deleted repos are still cleaned out).
+    existing_paths = {r[0] for r in conn.execute('SELECT path FROM repos').fetchall()}
+    skipped = 0
+
     for rpath in sorted(repo_paths):
+        if _STOP:
+            break
+        if rpath in existing_paths:
+            skipped += 1
+            continue
         name = os.path.basename(rpath)
         url = get_remote_url(rpath)
         desc, summary, readme = get_readme(rpath)
@@ -472,10 +498,12 @@ def scan_and_populate():
             (repo_id, name, desc or '', readme or '', tag_str)
         )
 
-    # Remove stale repos (in DB but not in current scan)
+    # Remove stale repos (in DB but not in current scan). Skip on interrupt —
+    # an early stop means the on-disk list is incomplete, so we must not treat
+    # unscanned repos as deleted.
     scanned_paths = set(sorted(repo_paths))
     stale = conn.execute('SELECT id, path FROM repos').fetchall()
-    stale_ids = [r[0] for r in stale if r[1] not in scanned_paths]
+    stale_ids = [] if _STOP else [r[0] for r in stale if r[1] not in scanned_paths]
     if stale_ids:
         placeholders = ','.join('?' * len(stale_ids))
         # Get FTS data before deleting so we can remove from contentless FTS
@@ -499,9 +527,16 @@ def scan_and_populate():
     ''', (len(repo_paths), added, updated))
 
     conn.commit()
+    try:
+        conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')   # flush WAL, leave nothing dangling
+    except sqlite3.Error:
+        pass
     conn.close()
 
-    print(f"Done: {added} added, {updated} updated")
+    if _STOP:
+        print(f"\nStopped cleanly: {added} added before interrupt, {skipped} already indexed.")
+    else:
+        print(f"Done: {added} added, {skipped} already indexed (skipped)")
     print(f"DB: {DB_PATH}")
 
 

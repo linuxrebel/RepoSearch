@@ -91,13 +91,56 @@ names) when we tighten — recall and precision need fixing together, not just t
 - Full `hardware_utils.py` module + hardware summary banner — one consumer (embed), so
   the ~10-line heuristic is inlined rather than made a module. Extract if Tier 4 needs it.
 
-## Tier 4 — capability, more work (not started)
+## Tier 4 — capability, more work
 
+- ✅ **Synopsis + README reader** (built 2026-08-27, DELIBERATELY divergent from
+  DocuBrowser's LLM synopsis). Guiding rule: **respect the developer's own words** — the
+  synopsis is verbatim wherever the devs authored a description; AI only writes when
+  nothing is authored anywhere. On-demand + cached in the DB (`synopsis`, `synopsis_kind`
+  columns), same as DocuBrowser's synopsis caching. Model: `dolphin3:latest` (pulled by
+  `ensure_ollama`).
+  - **Generation chain** (`repo_search.py`, `POST /api/synopsis`, two-stage so the UI can
+    show the code-reading notice only when it's reached):
+    1. `extract_heading_description` — verbatim body under an explicit
+       Description/Overview/About/Introduction/What-is heading. Structural, instant.
+    2. `ai_extract_description` — dolphin3 copies the README's description; accepted ONLY
+       if its whitespace-collapsed form is a literal substring of the README (words
+       unchanged; whitespace ≠ words). Paraphrase → rejected → fall through.
+    3. `fetch_remote_description` — GitHub/GitLab repo description via unauth API,
+       best-effort, verbatim, silent fall-through if offline/no-remote/empty. (Offline
+       goal covers the product + AI models, NOT the repos themselves — they have remotes.)
+    4. `synopsis_from_code` — last resort: `gather_code_bundle` (tree + manifests + heads
+       of main files, bounded) → dolphin3 summary. `kind='code'`; UI shows the "reading
+       the project" notice and labels the result as code-generated.
+  - `GET /api/synopsis?path=` returns the cached synopsis; `GET /api/readme?path=` returns
+    raw markdown for the reader (both validate path against the index — no traversal).
+  - `index.html`: repo title → synopsis modal (loading states + source tag: verbatim from
+    README / from host / AI from code). Remote link moved to a per-card **Open** button.
+    Open Readme → read-only reader rendering full markdown via hand-rolled `renderMarkdown`
+    (headings, bold/italic, inline+fenced code, lists, links, images/badges, hr;
+    HTML-escaped). ponytail: not full CommonMark — ordered lists/tables/nested lists render
+    plainly.
+  - ponytail: rescan does not currently invalidate a cached synopsis, so a synopsis can go
+    stale if a README changes. Revisit if it matters.
+- ✅ **Card action row** (built 2026-08-27, ported from DocuBrowser's card buttons, hover
+  tooltips retained). Row under the title: **Open** (green, opens the repo's remote page —
+  moved out of the old top-right corner) · 📋 **Copy** path · 🏷️ **Tag** (add manual tags,
+  `POST /api/add-tags`) · 🙈 **Hide** (`POST /api/add-tags?tags=hidden`; hidden repos are
+  filtered from search + listing + tag cloud) · ❌ **Delete** (confirm modal → `POST
+  /api/delete` → `shutil.rmtree` the clone + purge from the index). Delete refuses any path
+  that isn't an indexed repo under gitParent. All mutating POSTs are CSRF-guarded.
+  - **Unhide / show-hidden** (DocuBrowser parity): a `Show 🙈` toggle in the results bar
+    (`/api/search?hidden=1` → `include_hidden`); hidden cards then show a 👀 unhide button
+    (`POST /api/remove-tag?tag=hidden`).
+  - **Manage-tags modal** (🏷️): lists the repo's tags each with an ✕ remove
+    (`POST /api/remove-tag`), plus the add box (`POST /api/add-tags`).
+- ✅ **Incremental rescan** (`scan_repos.py`, 2026-08-27): rescan skips repos already in the
+  DB — only new paths get the heavy metadata/tag extraction. Still does the full on-disk
+  walk so stale-repo removal keeps working; embeddings were already incremental
+  (`embed_repos.py`). ponytail: existing repos no longer refresh metadata (commits/README)
+  on rescan — add a `--full` path if that's ever wanted.
 - ⬜ **Deep Links** (`deep_links.py`) — jump to the passage inside a doc. For repos =
   jump to README location. Low value (READMEs short), high port cost.
-- ⬜ **LLM synopsis** (dolphin3) — DocuBrowser generates AI summary. repo-browser has
-  `summary` = first README paragraph, heuristic-extracted (`scan_repos.py`
-  `extract_summary`). Cheaper, arguably fine.
 - ⬜ **Cross-platform paths** (`platform_paths.py`) — XDG / macOS / Windows. repo-browser
   is `/etc/rb.config` + workDir, WSL-only for Windows.
 - ⬜ **Packaging** — DocuBrowser ships rpm/deb/tar/win/mac. repo-browser: tarball only.
