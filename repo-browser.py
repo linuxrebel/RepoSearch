@@ -204,11 +204,19 @@ def cmd_rescan(cfg: dict) -> int:
         return 1
     if not ensure_ollama():
         return 1
-    print('Scanning repos...')
-    subprocess.run([sys.executable, 'scan_repos.py'], cwd=str(SCRIPT_DIR))
-    print()
-    print('Updating embeddings...')
-    subprocess.run([sys.executable, 'embed_repos.py'], cwd=str(SCRIPT_DIR))
+    # Let the child scripts own Ctrl-C: they trap SIGINT and stop at a safe
+    # boundary (closing the DB cleanly). If the parent also took SIGINT it would
+    # raise mid-wait and could abandon a child still writing — the abrupt crash
+    # that drops the SD-card mount. So the parent ignores SIGINT while they run.
+    prev_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        print('Scanning repos...')
+        subprocess.run([sys.executable, 'scan_repos.py'], cwd=str(SCRIPT_DIR))
+        print()
+        print('Updating embeddings...')
+        subprocess.run([sys.executable, 'embed_repos.py'], cwd=str(SCRIPT_DIR))
+    finally:
+        signal.signal(signal.SIGINT, prev_sigint)
     print()
     if running():
         print('Restarting server...')

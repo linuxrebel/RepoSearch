@@ -22,12 +22,24 @@ Stores float32 vectors in SQLite BLOB. Run after scan_repos.py.
 import os
 import json
 import shutil
+import signal
 import struct
 import sqlite3
 import urllib.request
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rb_config import get_db_path
+
+# Set by SIGINT so Ctrl-C stops at a safe boundary (between commits) rather than
+# killing the process mid-write — an abrupt crash mid-I/O can drop the mount when
+# the DB lives on an SD card.
+_STOP = False
+
+
+def _request_stop(_signum, _frame):
+    global _STOP
+    _STOP = True
+    print('\nStopping after the current batch…', flush=True)
 
 DB_PATH = get_db_path()
 OLLAMA_URL = 'http://localhost:11434/api/embed'
@@ -85,6 +97,7 @@ def build_embed_text(repo):
 
 
 def embed_all():
+    signal.signal(signal.SIGINT, _request_stop)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
@@ -116,27 +129,31 @@ def embed_all():
     # Ollama calls run in parallel; all DB writes stay on this thread since a
     # single sqlite3 connection isn't safe to share across threads.
     done = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(fetch, row) for row in rows]
-        for fut in as_completed(futures):
-            repo_id, name, result = fut.result()
-            if isinstance(result, Exception):
-                print(f"  SKIP {name}: {result}")
-                continue
-            conn.execute('''
-                INSERT OR REPLACE INTO repo_embeddings (repo_id, embedding, model, updated_at)
-                VALUES (?, ?, ?, datetime('now'))
-            ''', (repo_id, vec_to_blob(result), MODEL))
-            done += 1
-            if done % 25 == 0 or done == total:
-                conn.commit()
-                print(f"  {done}/{total}")
-
-    conn.commit()
-
-    embedded = conn.execute('SELECT count(*) FROM repo_embeddings').fetchone()[0]
-    print(f"Done. {embedded} repos have embeddings.")
-    conn.close()
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(fetch, row) for row in rows]
+            for fut in as_completed(futures):
+                if _STOP:
+                    for f in futures:
+                        f.cancel()
+                    break
+                repo_id, name, result = fut.result()
+                if isinstance(result, Exception):
+                    print(f"  SKIP {name}: {result}")
+                    continue
+                conn.execute('''
+                    INSERT OR REPLACE INTO repo_embeddings (repo_id, embedding, model, updated_at)
+                    VALUES (?, ?, ?, datetime('now'))
+                ''', (repo_id, vec_to_blob(result), MODEL))
+                done += 1
+                if done % 25 == 0 or done == total:
+                    conn.commit()
+                    print(f"  {done}/{total}")
+        conn.commit()
+    finally:
+        embedded = conn.execute('SELECT count(*) FROM repo_embeddings').fetchone()[0]
+        conn.close()
+    print(f"{'Stopped' if _STOP else 'Done'}. {embedded} repos have embeddings.")
 
 
 if __name__ == '__main__':
