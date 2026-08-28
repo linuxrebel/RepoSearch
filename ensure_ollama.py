@@ -35,7 +35,11 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
-MODEL      = 'nomic-embed-text'
+# (model name, download size, what it's for)
+MODELS = [
+    ('nomic-embed-text', '~274 MB', 'semantic search'),
+    ('dolphin3:latest',  '~4.9 GB', 'synopsis generation'),
+]
 OLLAMA_API = 'http://localhost:11434'
 
 
@@ -149,30 +153,35 @@ def start_ollama():
 
 # ── 3. Model present? ────────────────────────────────────────────────────────
 
-def model_present() -> bool:
+def installed_models() -> list:
     try:
         resp = urlopen(f'{OLLAMA_API}/api/tags', timeout=5)
         data = json.loads(resp.read())
-        return any(MODEL in m.get('name', '') for m in data.get('models', []))
+        return [m.get('name', '') for m in data.get('models', [])]
     except Exception:
-        return False
+        return []
 
 
-def pull_model():
+def model_present(model, present) -> bool:
+    base = model.split(':')[0]
+    return any(base == n.split(':')[0] for n in present)
+
+
+def pull_model(model, size, purpose):
     print()
-    print(f'  The {MODEL} embedding model is not installed (~274 MB download).')
-    print( '  It is required for semantic search.')
-    if not ask(f'Pull {MODEL} now?'):
+    print(f'  The {model} model is not installed ({size} download).')
+    print(f'  It is required for {purpose}.')
+    if not ask(f'Pull {model} now?'):
         print()
-        err(f'{MODEL} not pulled. To pull manually:')
-        print(f'    ollama pull {MODEL}', file=sys.stderr)
+        err(f'{model} not pulled. To pull manually:')
+        print(f'    ollama pull {model}', file=sys.stderr)
         sys.exit(1)
     print()
-    ret = subprocess.run(['ollama', 'pull', MODEL])
+    ret = subprocess.run(['ollama', 'pull', model])
     if ret.returncode != 0:
-        err(f'Failed to pull {MODEL}. Try manually: ollama pull {MODEL}')
+        err(f'Failed to pull {model}. Try manually: ollama pull {model}')
         sys.exit(1)
-    ok(f'{MODEL} ready.')
+    ok(f'{model} ready.')
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -190,10 +199,12 @@ def main():
     else:
         ok('Ollama service reachable.')
 
-    if not model_present():
-        pull_model()
-    else:
-        ok(f'{MODEL} model present.')
+    present = installed_models()
+    for model, size, purpose in MODELS:
+        if model_present(model, present):
+            ok(f'{model} model present.')
+        else:
+            pull_model(model, size, purpose)
 
     print('Ollama ready.\n')
 
